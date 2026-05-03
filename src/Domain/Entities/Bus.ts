@@ -64,3 +64,29 @@ export class Bus {
   obtenerCapacidadTotal(): number {
     return this.capacidadNormal + this.capacidadVip;
   }
+
+    obtenerCapacidadTotal(): number {
+    return this.capacidadNormal + this.capacidadVip;
+  }
+ 
+  /**
+   * Obtiene los asientos disponibles
+   */
+  obtenerAsientosDisponibles(): number {
+    const normalDisponibles = this.asientosNormales?.filter((a) => a.disponible).length || 0;
+    const vipDisponibles = this.asientosVip?.filter((a) => a.disponible).length || 0;
+    return normalDisponibles + vipDisponibles;
+  }
+ 
+  /**
+   * Valida si hay capacidad para un tipo específico de asiento
+   */
+  tieneCapacidadDisponible(tipoAsiento: 'NORMAL' | 'VIP'): boolean {
+    if (tipoAsiento === 'NORMAL') {
+      const ocupados = this.asientosNormales?.filter((a) => !a.disponible).length || 0;
+      return ocupados < this.capacidadNormal;
+    } else {
+      const ocupados = this.asientosVip?.filter((a) => !a.disponible).length || 0;
+      return ocupados < this.capacidadVip;
+    }
+  }
