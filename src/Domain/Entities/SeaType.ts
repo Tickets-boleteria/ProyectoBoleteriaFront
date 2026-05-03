@@ -45,3 +45,13 @@ export class SeatType {
     const hexRegex = /^#[0-9A-F]{6}$/i;
     return hexRegex.test(color);
   }
+
+    actualizarPrecio(nuevoPrecio: number): void {
+    if (nuevoPrecio < 0) {
+      throw new Error('El precio no puede ser negativo');
+    }
+    this.precioBase = nuevoPrecio;
+    this.updatedAt = new Date();
+  }
+  
+}
