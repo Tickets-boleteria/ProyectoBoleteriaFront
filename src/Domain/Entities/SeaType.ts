@@ -27,3 +27,21 @@ export class SeatType {
     this.estado = estado;
   }
  
+   /**
+   * Valida si el tipo de asiento tiene datos válidos
+   */
+  esValido(): boolean {
+    return (
+      this.nombre.length >= 3 &&
+      this.validarColorHex(this.colorHex) &&
+      this.precioBase >= 0
+    );
+  }
+ 
+  /**
+   * Valida que el color sea un hexadecimal válido
+   */
+  private validarColorHex(color: string): boolean {
+    const hexRegex = /^#[0-9A-F]{6}$/i;
+    return hexRegex.test(color);
+  }
