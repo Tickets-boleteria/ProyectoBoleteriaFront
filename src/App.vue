@@ -1,20 +1,9 @@
-<script setup lang="ts">
-import Historial from './Presentation/Views/Historial.vue';
-</script>
-
 <template>
-  <main>
-    <h1>Bienvenido a la Boletería</h1>
-    <p>La arquitectura limpia y Supabase están configurados correctamente.</p>
-    <hr />
-    <Historial />
-  </main>
+  <div>
+    <nav style="background:#1E3A5F; padding:10px 20px; display:flex; gap:20px;">
+      <router-link to="/" style="color:white; text-decoration:none;">Historial</router-link>
+      <router-link to="/usuarios" style="color:white; text-decoration:none;">Usuarios</router-link>
+    </nav>
+    <router-view />
+  </div>
 </template>
-
-<style scoped>
-main {
-  text-align: center;
-  padding: 2rem;
-  font-family: sans-serif;
-}
-</style>
