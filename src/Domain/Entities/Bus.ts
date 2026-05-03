@@ -90,3 +90,74 @@ export class Bus {
       return ocupados < this.capacidadVip;
     }
   }
+
+  /**
+   * Desactiva el bus (eliminación lógica)
+   */
+  desactivar(): void {
+    this.estado = false;
+    this.updatedAt = new Date();
+  }
+ 
+  /**
+   * Activa el bus
+   */
+  activar(): void {
+    this.estado = true;
+    this.updatedAt = new Date();
+  }
+}
+ 
+/**
+ * Representa un asiento dentro de un bus
+ */
+export class BusAsiento {
+  id?: string;
+  busId: string;
+  numeroAsiento: string;
+  tipoAsientoId: string;
+  tipo: 'NORMAL' | 'VIP';
+  disponible: boolean;
+  pasajeroId?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+ 
+  constructor(
+    busId: string,
+    numeroAsiento: string,
+    tipoAsientoId: string,
+    tipo: 'NORMAL' | 'VIP',
+    disponible: boolean = true
+  ) {
+    this.busId = busId;
+    this.numeroAsiento = numeroAsiento;
+    this.tipoAsientoId = tipoAsientoId;
+    this.tipo = tipo;
+    this.disponible = disponible;
+  }
+ 
+  /**
+   * Marca el asiento como ocupado
+   */
+  ocupar(pasajeroId: string): void {
+    this.disponible = false;
+    this.pasajeroId = pasajeroId;
+    this.updatedAt = new Date();
+  }
+ 
+  /**
+   * Marca el asiento como disponible
+   */
+  liberar(): void {
+    this.disponible = true;
+    this.pasajeroId = undefined;
+    this.updatedAt = new Date();
+  }
+ 
+  /**
+   * Verifica si el asiento está disponible
+   */
+  estaDisponible(): boolean {
+    return this.disponible;
+  }
+}
