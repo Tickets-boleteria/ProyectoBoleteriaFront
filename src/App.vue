@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import Historial from './Presentation/Views/Historial.vue';
+import SalesView from './Presentation/Views/SalesView.vue';
 </script>
 
 <template>
   <main>
     <h1>Bienvenido a la Boletería</h1>
-    <p>La arquitectura limpia y Supabase están configurados correctamente.</p>
+    <p>Módulo de ventas con descuentos por reglas de negocio.</p>
     <hr />
-    <Historial />
+    <SalesView />
   </main>
 </template>
 
