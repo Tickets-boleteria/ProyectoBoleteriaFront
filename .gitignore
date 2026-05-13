@@ -27,3 +27,5 @@ Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
+
+package-lock.json
