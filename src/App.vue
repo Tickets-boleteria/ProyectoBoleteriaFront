@@ -4,7 +4,9 @@
       <router-link to="/" style="color:white; text-decoration:none;">
         Historial
       </router-link>
-
+      <router-link to="/hoja-ruta" style="color:white; text-decoration:none;">
+        Hoja de Ruta
+      </router-link>
       <router-link to="/usuarios" style="color:white; text-decoration:none;">
         Usuarios
       </router-link>
