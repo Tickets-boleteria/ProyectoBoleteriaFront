@@ -1,7 +1,7 @@
 import { ref } from 'vue';
-import { GestionarFrecuencias } from '../../Application/UseCases/GestionarFrecuencias';
-import { SupabaseFrecuenciaRepository } from '../../Infrastructure/Repositories/SupabaseFrecuenciaRepository';
-import { Frecuencia, Parada } from '../../Domain/Entities/Frecuencia';
+import { GestionarFrecuencias } from '../../../../Application/UseCases/GestionarFrecuencias';
+import { SupabaseFrecuenciaRepository } from '../../../../Infrastructure/Repositories/SupabaseFrecuenciaRepository';
+import { Frecuencia, Parada } from '../../../../Domain/Entities/Frecuencia';
 
 const frecuenciaRepository = new SupabaseFrecuenciaRepository();
 const gestionarFrecuencias = new GestionarFrecuencias(frecuenciaRepository);
