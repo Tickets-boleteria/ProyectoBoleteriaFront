@@ -65,9 +65,6 @@ export class Bus {
     return this.capacidadNormal + this.capacidadVip;
   }
 
-    obtenerCapacidadTotal(): number {
-    return this.capacidadNormal + this.capacidadVip;
-  }
  
   /**
    * Obtiene los asientos disponibles

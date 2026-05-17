@@ -2,16 +2,16 @@
  * SupabaseBusRepository.ts - Implementación de IBusRepository con Supabase
  */
 
-import { supabase } from '../Api/supabaseClient';
-import { Bus, BusAsiento } from '../../Domain/Entities/Bus';
-import { IBusRepository, BusFiltros } from '../../Domain/Repositories/IBusRepository';
+import { supabase } from './Api/supabaseClient';
+import { Bus, BusAsiento } from '../Domain/Entities/Bus';
+import { IBusRepository, BusFiltros } from '../Domain/Repositories/IBusRepository';
 import {
   BusNoEncontradoException,
   BusInvalidoException,
   PlacaDuplicadaException,
   NumeroBusDuplicadoException,
   BusNoActivoException,
-} from '../../Domain/Exceptions/BusExceptions';
+} from '../Domain/Exceptions/BusException';
 
 export class SupabaseBusRepository implements IBusRepository {
   private readonly TABLA_BUSES = 'buses';

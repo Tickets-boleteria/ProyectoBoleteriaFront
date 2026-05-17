@@ -4,7 +4,7 @@
 
 import { Bus, BusAsiento } from '../../Domain/Entities/Bus';
 import { IBusRepository, BusFiltros } from '../../Domain/Repositories/IBusRepository';
-import { BusInvalidoException } from '../../Domain/Exceptions/BusExceptions';
+import { BusInvalidoException } from '../../Domain/Exceptions/BusException';
 
 /**
  * Caso de uso: Crear un nuevo bus
