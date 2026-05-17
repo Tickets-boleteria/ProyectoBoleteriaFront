@@ -5,6 +5,8 @@ export class Bus {
   public anio?: number;
   public fotoUrl?: string;
   public createdAt?: Date;
+  public asientosNormales?: BusAsiento[];
+  public asientosVip?: BusAsiento[];
 
   constructor(
     public cooperativaId: number,
@@ -22,12 +24,24 @@ export class Bus {
       this.totalAsientos > 0
     );
   }
+
+  desactivar(): void {
+    this.estado = 'Inactivo';
+  }
+
+  activar(): void {
+    this.estado = 'Activo';
+  }
 }
  
 export class BusAsiento {
   public id?: number;
   public fila?: string;
   public columna?: string;
+  public disponible: boolean = true;
+  public pasajeroId?: string;
+  public createdAt?: Date;
+  public updatedAt?: Date;
 
   constructor(
     public busId: number,
@@ -35,4 +49,20 @@ export class BusAsiento {
     public numeroAsiento: string,
     public tipo: string
   ) {}
+
+  ocupar(pasajeroId: string): void {
+    this.disponible = false;
+    this.pasajeroId = pasajeroId;
+    this.updatedAt = new Date();
+  }
+
+  liberar(): void {
+    this.disponible = true;
+    this.pasajeroId = undefined;
+    this.updatedAt = new Date();
+  }
+
+  estaDisponible(): boolean {
+    return this.disponible;
+  }
 }

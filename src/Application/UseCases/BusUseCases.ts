@@ -1,45 +1,47 @@
-/**
- * Casos de uso para gestión de Buses
- */
-
 import { Bus, BusAsiento } from '../../Domain/Entities/Bus';
 import { IBusRepository, BusFiltros } from '../../Domain/Repositories/IBusRepository';
-import { BusInvalidoException } from '../../Domain/Exceptions/BusException';
+import { DomainException } from '../../Domain/Exceptions/DomainException';
 
-/**
- * Caso de uso: Crear un nuevo bus
- */
+export interface CrearBusInput {
+  cooperativaId: number;
+  numero: string;
+  placa: string;
+  totalAsientos: number;
+  marcaChasis?: string;
+  marcaCarroceria?: string;
+  anio?: number;
+  fotoUrl?: string;
+}
+
 export class CrearBus {
   constructor(private busRepository: IBusRepository) {}
 
-  async ejecutar(
-    numero: number,
-    placa: string,
-    chasis: string,
-    carroceria: string,
-    cooperativaId: string,
-    capacidadNormal: number = 40,
-    capacidadVip: number = 10,
-    fotografiaUrl?: string
-  ): Promise<Bus> {
-    const bus = new Bus(
-      numero,
-      placa,
-      chasis,
-      carroceria,
-      cooperativaId,
-      capacidadNormal,
-      capacidadVip,
-      fotografiaUrl
+  async ejecutar(input: CrearBusInput): Promise<Bus> {
+    const nuevoBus = new Bus(
+      input.cooperativaId,
+      input.numero,
+      input.placa,
+      input.totalAsientos
     );
 
-    return this.busRepository.crear(bus);
+    if (!nuevoBus.esValido()) {
+      throw new DomainException('Los datos del autobús no son válidos. Verifique el número, la placa y la capacidad.');
+    }
+
+    const busExistente = await this.busRepository.obtenerPorPlaca(input.placa);
+    if (busExistente) {
+      throw new DomainException(`Ya existe un autobús registrado con la placa ${input.placa}.`);
+    }
+
+    if (input.marcaChasis) nuevoBus.marcaChasis = input.marcaChasis;
+    if (input.marcaCarroceria) nuevoBus.marcaCarroceria = input.marcaCarroceria;
+    if (input.anio) nuevoBus.anio = input.anio;
+    if (input.fotoUrl) nuevoBus.fotoUrl = input.fotoUrl;
+
+    return this.busRepository.crear(nuevoBus);
   }
 }
 
-/**
- * Caso de uso: Obtener todos los buses
- */
 export class ObtenerTodosBuses {
   constructor(private busRepository: IBusRepository) {}
 
@@ -48,101 +50,64 @@ export class ObtenerTodosBuses {
   }
 }
 
-/**
- * Caso de uso: Obtener buses de una cooperativa
- */
 export class ObtenerBusesPorCooperativa {
   constructor(private busRepository: IBusRepository) {}
 
-  async ejecutar(cooperativaId: string): Promise<Bus[]> {
+  async ejecutar(cooperativaId: number): Promise<Bus[]> {
     return this.busRepository.obtenerPorCooperativa(cooperativaId);
   }
 }
 
-/**
- * Caso de uso: Obtener un bus por ID
- */
 export class ObtenerBusPorId {
   constructor(private busRepository: IBusRepository) {}
 
-  async ejecutar(id: string): Promise<Bus | null> {
+  async ejecutar(id: number): Promise<Bus | null> {
     return this.busRepository.obtenerPorId(id);
   }
 }
 
-/**
- * Caso de uso: Actualizar un bus
- */
 export class ActualizarBus {
   constructor(private busRepository: IBusRepository) {}
 
-  async ejecutar(bus: Bus): Promise<Bus> {
-    if (!bus.esValido()) {
-      throw new BusInvalidoException();
-    }
-    return this.busRepository.actualizar(bus);
+  async ejecutar(id: number, bus: Partial<Bus>): Promise<Bus> {
+    return this.busRepository.actualizar(id, bus);
   }
 }
 
-/**
- * Caso de uso: Eliminar un bus
- */
 export class EliminarBus {
   constructor(private busRepository: IBusRepository) {}
 
-  async ejecutar(id: string): Promise<void> {
-    return this.busRepository.eliminar(id);
+  async ejecutar(id: number): Promise<void> {
+    return this.busRepository.eliminarLogico(id);
   }
 }
 
-/**
- * Caso de uso: Obtener asientos disponibles de un bus
- */
 export class ObtenerAsientosDisponibles {
   constructor(private busRepository: IBusRepository) {}
 
-  async ejecutar(busId: string, tipo: 'NORMAL' | 'VIP'): Promise<BusAsiento[]> {
+  async ejecutar(busId: number, tipo: 'NORMAL' | 'VIP'): Promise<BusAsiento[]> {
     return this.busRepository.obtenerAsientosDisponibles(busId, tipo);
   }
 }
 
-/**
- * Caso de uso: Reservar asientos
- */
 export class ReservarAsientos {
   constructor(private busRepository: IBusRepository) {}
 
-  async ejecutar(
-    asientos: BusAsiento[],
-    pasajeroId: string
-  ): Promise<void> {
-    // Marcar asientos con el pasajero
-    asientos.forEach((a) => {
-      a.ocupar(pasajeroId);
-    });
-
+  async ejecutar(asientos: BusAsiento[], pasajeroId: string): Promise<void> {
+    asientos.forEach((a) => a.ocupar(pasajeroId));
     return this.busRepository.reservarAsientos(asientos);
   }
 }
 
-/**
- * Caso de uso: Liberar asientos
- */
 export class LiberarAsientos {
   constructor(private busRepository: IBusRepository) {}
 
   async ejecutar(asientos: BusAsiento[]): Promise<void> {
-    asientos.forEach((a) => {
-      a.liberar();
-    });
-
+    asientos.forEach((a) => a.liberar());
     return this.busRepository.liberarAsientos(asientos);
   }
 }
 
-/**
- * Caso de uso: Buscar buses disponibles
- */
 export class BuscarBusesDisponibles {
   constructor(private busRepository: IBusRepository) {}
 
@@ -152,82 +117,56 @@ export class BuscarBusesDisponibles {
     fecha: Date,
     filtros?: BusFiltros
   ): Promise<Bus[]> {
-    return this.busRepository.buscarDisponibles(
-      ciudadOrigen,
-      ciudadDestino,
-      fecha,
-      filtros
-    );
+    return this.busRepository.buscarDisponibles(ciudadOrigen, ciudadDestino, fecha, filtros);
   }
 }
 
-/**
- * Caso de uso: Obtener asientos de un bus
- */
 export class ObtenerAsientosBus {
   constructor(private busRepository: IBusRepository) {}
 
-  async ejecutar(busId: string): Promise<BusAsiento[]> {
+  async ejecutar(busId: number): Promise<BusAsiento[]> {
     return this.busRepository.obtenerAsientos(busId);
   }
 }
 
-/**
- * Caso de uso: Actualizar configuración de capacidad de un bus
- */
 export class ActualizarCapacidadBus {
   constructor(private busRepository: IBusRepository) {}
 
-  async ejecutar(
-    busId: string,
-    capacidadNormal: number,
-    capacidadVip: number
-  ): Promise<Bus> {
+  async ejecutar(busId: number, totalAsientos: number): Promise<Bus> {
     const bus = await this.busRepository.obtenerPorId(busId);
 
     if (!bus) {
-      throw new Error(`Bus ${busId} no encontrado`);
+      throw new DomainException(`Bus ${busId} no encontrado`);
     }
 
-    bus.capacidadNormal = capacidadNormal;
-    bus.capacidadVip = capacidadVip;
-
-    return this.busRepository.actualizar(bus);
+    return this.busRepository.actualizar(busId, { totalAsientos });
   }
 }
 
-/**
- * Caso de uso: Desactivar un bus
- */
 export class DesactivarBus {
   constructor(private busRepository: IBusRepository) {}
 
-  async ejecutar(busId: string): Promise<Bus> {
+  async ejecutar(busId: number): Promise<Bus> {
     const bus = await this.busRepository.obtenerPorId(busId);
 
     if (!bus) {
-      throw new Error(`Bus ${busId} no encontrado`);
+      throw new DomainException(`Bus ${busId} no encontrado`);
     }
 
-    bus.desactivar();
-    return this.busRepository.actualizar(bus);
+    return this.busRepository.actualizar(busId, { estado: 'Inactivo' });
   }
 }
 
-/**
- * Caso de uso: Activar un bus
- */
 export class ActivarBus {
   constructor(private busRepository: IBusRepository) {}
 
-  async ejecutar(busId: string): Promise<Bus> {
+  async ejecutar(busId: number): Promise<Bus> {
     const bus = await this.busRepository.obtenerPorId(busId);
 
     if (!bus) {
-      throw new Error(`Bus ${busId} no encontrado`);
+      throw new DomainException(`Bus ${busId} no encontrado`);
     }
 
-    bus.activar();
-    return this.busRepository.actualizar(bus);
+    return this.busRepository.actualizar(busId, { estado: 'Activo' });
   }
 }

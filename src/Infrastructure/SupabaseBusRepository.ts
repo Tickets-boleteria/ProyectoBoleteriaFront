@@ -9,17 +9,12 @@ import {
   BusNoEncontradoException,
   BusInvalidoException,
   PlacaDuplicadaException,
-  NumeroBusDuplicadoException,
-  BusNoActivoException,
 } from '../Domain/Exceptions/BusException';
 
 export class SupabaseBusRepository implements IBusRepository {
   private readonly TABLA_BUSES = 'buses';
   private readonly TABLA_ASIENTOS = 'asientos_bus';
 
-  /**
-   * Obtiene todos los buses
-   */
   async obtenerTodos(): Promise<Bus[]> {
     const { data, error } = await supabase
       .from(this.TABLA_BUSES)
@@ -27,13 +22,10 @@ export class SupabaseBusRepository implements IBusRepository {
       .order('numero', { ascending: true });
 
     if (error) throw new Error(`Error al obtener buses: ${error.message}`);
-    return this.mapearBuses(data || []);
+    return (data || []).map((item) => this.mapearBus(item));
   }
 
-  /**
-   * Obtiene buses de una cooperativa específica
-   */
-  async obtenerPorCooperativa(cooperativaId: string): Promise<Bus[]> {
+  async obtenerPorCooperativa(cooperativaId: number): Promise<Bus[]> {
     const { data, error } = await supabase
       .from(this.TABLA_BUSES)
       .select('*')
@@ -41,17 +33,14 @@ export class SupabaseBusRepository implements IBusRepository {
       .eq('estado', true)
       .order('numero', { ascending: true });
 
-    if (error)
-      throw new Error(
-        `Error al obtener buses de la cooperativa: ${error.message}`
-      );
-    return this.mapearBuses(data || []);
+    if (error) {
+      throw new Error(`Error al obtener buses de la cooperativa: ${error.message}`);
+    }
+
+    return (data || []).map((item) => this.mapearBus(item));
   }
 
-  /**
-   * Obtiene un bus por su ID
-   */
-  async obtenerPorId(id: string): Promise<Bus | null> {
+  async obtenerPorId(id: number): Promise<Bus | null> {
     const { data, error } = await supabase
       .from(this.TABLA_BUSES)
       .select('*')
@@ -62,36 +51,9 @@ export class SupabaseBusRepository implements IBusRepository {
       throw new Error(`Error al obtener bus: ${error.message}`);
     }
 
-    if (!data) return null;
-
-    const bus = this.mapearBus(data);
-    bus.asientosNormales = await this.obtenerAsientosPorTipo(id, 'NORMAL');
-    bus.asientosVip = await this.obtenerAsientosPorTipo(id, 'VIP');
-
-    return bus;
+    return data ? this.mapearBus(data) : null;
   }
 
-  /**
-   * Obtiene un bus por su número
-   */
-  async obtenerPorNumero(numero: number): Promise<Bus | null> {
-    const { data, error } = await supabase
-      .from(this.TABLA_BUSES)
-      .select('*')
-      .eq('numero', numero)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      throw new Error(`Error al obtener bus: ${error.message}`);
-    }
-
-    if (!data) return null;
-    return this.mapearBus(data);
-  }
-
-  /**
-   * Obtiene un bus por su placa
-   */
   async obtenerPorPlaca(placa: string): Promise<Bus | null> {
     const { data, error } = await supabase
       .from(this.TABLA_BUSES)
@@ -103,27 +65,20 @@ export class SupabaseBusRepository implements IBusRepository {
       throw new Error(`Error al obtener bus: ${error.message}`);
     }
 
-    if (!data) return null;
-    return this.mapearBus(data);
+    return data ? this.mapearBus(data) : null;
   }
 
-  /**
-   * Crea un nuevo bus
-   */
   async crear(bus: Bus): Promise<Bus> {
-    // Validación
     if (!bus.esValido()) {
       throw new BusInvalidoException();
     }
 
-    // Verificar duplicados
     const busExistente = await this.obtenerPorPlaca(bus.placa);
     if (busExistente) {
       throw new PlacaDuplicadaException(bus.placa);
     }
 
     const datosInsert = this.mapearBusADatos(bus);
-
     const { data, error } = await supabase
       .from(this.TABLA_BUSES)
       .insert([datosInsert])
@@ -133,44 +88,41 @@ export class SupabaseBusRepository implements IBusRepository {
     if (error) throw new Error(`Error al crear bus: ${error.message}`);
 
     const busCreado = this.mapearBus(data);
-
-    // Crear asientos automáticamente
-    await this.crearAsientosParaBus(busCreado.id!, bus.capacidadNormal, bus.capacidadVip);
-
+    await this.crearAsientosParaBus(busCreado.id!, bus.totalAsientos);
     return busCreado;
   }
 
-  /**
-   * Actualiza un bus existente
-   */
-  async actualizar(bus: Bus): Promise<Bus> {
-    if (!bus.id) {
-      throw new Error('El bus debe tener un ID para actualizar');
+  async actualizar(id: number, bus: Partial<Bus>): Promise<Bus> {
+    const busActual = await this.obtenerPorId(id);
+    if (!busActual) {
+      throw new BusNoEncontradoException(id);
     }
 
-    if (!bus.esValido()) {
-      throw new BusInvalidoException();
-    }
-
-    const datosUpdate = this.mapearBusADatos(bus);
+    const busActualizado = new Bus(
+      bus.cooperativaId ?? busActual.cooperativaId,
+      bus.numero ?? busActual.numero,
+      bus.placa ?? busActual.placa,
+      bus.totalAsientos ?? busActual.totalAsientos,
+      bus.estado ?? busActual.estado
+    );
+    busActualizado.id = id;
+    busActualizado.marcaChasis = bus.marcaChasis ?? busActual.marcaChasis;
+    busActualizado.marcaCarroceria = bus.marcaCarroceria ?? busActual.marcaCarroceria;
+    busActualizado.anio = bus.anio ?? busActual.anio;
+    busActualizado.fotoUrl = bus.fotoUrl ?? busActual.fotoUrl;
 
     const { data, error } = await supabase
       .from(this.TABLA_BUSES)
-      .update(datosUpdate)
-      .eq('id', bus.id)
+      .update(this.mapearBusADatos(busActualizado))
+      .eq('id', id)
       .select()
       .single();
 
     if (error) throw new Error(`Error al actualizar bus: ${error.message}`);
-    if (!data) throw new BusNoEncontradoException(bus.id);
-
     return this.mapearBus(data);
   }
 
-  /**
-   * Elimina un bus (eliminación lógica)
-   */
-  async eliminar(id: string): Promise<void> {
+  async eliminarLogico(id: number): Promise<void> {
     const { error } = await supabase
       .from(this.TABLA_BUSES)
       .update({ estado: false })
@@ -179,10 +131,7 @@ export class SupabaseBusRepository implements IBusRepository {
     if (error) throw new Error(`Error al eliminar bus: ${error.message}`);
   }
 
-  /**
-   * Obtiene los asientos de un bus
-   */
-  async obtenerAsientos(busId: string): Promise<BusAsiento[]> {
+  async obtenerAsientos(busId: number): Promise<BusAsiento[]> {
     const { data, error } = await supabase
       .from(this.TABLA_ASIENTOS)
       .select('*')
@@ -190,16 +139,10 @@ export class SupabaseBusRepository implements IBusRepository {
       .order('numero_asiento', { ascending: true });
 
     if (error) throw new Error(`Error al obtener asientos: ${error.message}`);
-    return this.mapearAsientos(data || []);
+    return (data || []).map((item) => this.mapearAsiento(item));
   }
 
-  /**
-   * Obtiene asientos disponibles de un tipo
-   */
-  async obtenerAsientosDisponibles(
-    busId: string,
-    tipo: 'NORMAL' | 'VIP'
-  ): Promise<BusAsiento[]> {
+  async obtenerAsientosDisponibles(busId: number, tipo: 'NORMAL' | 'VIP'): Promise<BusAsiento[]> {
     const { data, error } = await supabase
       .from(this.TABLA_ASIENTOS)
       .select('*')
@@ -208,14 +151,13 @@ export class SupabaseBusRepository implements IBusRepository {
       .eq('disponible', true)
       .order('numero_asiento', { ascending: true });
 
-    if (error)
+    if (error) {
       throw new Error(`Error al obtener asientos disponibles: ${error.message}`);
-    return this.mapearAsientos(data || []);
+    }
+
+    return (data || []).map((item) => this.mapearAsiento(item));
   }
 
-  /**
-   * Actualiza el estado de un asiento
-   */
   async actualizarAsiento(asiento: BusAsiento): Promise<BusAsiento> {
     if (!asiento.id) {
       throw new Error('El asiento debe tener un ID');
@@ -236,14 +178,11 @@ export class SupabaseBusRepository implements IBusRepository {
     return this.mapearAsiento(data);
   }
 
-  /**
-   * Reserva asientos para un usuario
-   */
   async reservarAsientos(asientos: BusAsiento[]): Promise<void> {
-    const actualizaciones = asientos.map((a) => ({
-      id: a.id,
+    const actualizaciones = asientos.map((asiento) => ({
+      id: asiento.id,
       disponible: false,
-      pasajero_id: a.pasajeroId,
+      pasajero_id: asiento.pasajeroId,
       updated_at: new Date().toISOString(),
     }));
 
@@ -254,11 +193,8 @@ export class SupabaseBusRepository implements IBusRepository {
     if (error) throw new Error(`Error al reservar asientos: ${error.message}`);
   }
 
-  /**
-   * Libera asientos reservados
-   */
   async liberarAsientos(asientos: BusAsiento[]): Promise<void> {
-    const asientosIds = asientos.map((a) => a.id);
+    const asientosIds = asientos.map((asiento) => asiento.id);
 
     const { error } = await supabase
       .from(this.TABLA_ASIENTOS)
@@ -272,9 +208,6 @@ export class SupabaseBusRepository implements IBusRepository {
     if (error) throw new Error(`Error al liberar asientos: ${error.message}`);
   }
 
-  /**
-   * Busca buses disponibles en una ruta y fecha
-   */
   async buscarDisponibles(
     ciudadOrigen: string,
     ciudadDestino: string,
@@ -291,130 +224,19 @@ export class SupabaseBusRepository implements IBusRepository {
     }
 
     const { data, error } = await query;
-
     if (error) throw new Error(`Error al buscar buses: ${error.message}`);
-    return this.mapearBuses(data || []);
+    return (data || []).map((item) => this.mapearBus(item));
   }
 
-  // ===== MÉTODOS PRIVADOS =====
-
-  /**
-   * Mapea un registro de BD a la entidad Bus
-   */
-  private mapearBus(data: any): Bus {
-    const bus = new Bus(
-      data.numero,
-      data.placa,
-      data.chasis,
-      data.carroceria,
-      data.cooperativa_id,
-      data.capacidad_normal,
-      data.capacidad_vip,
-      data.fotografia_url,
-      data.estado
-    );
-    bus.id = data.id;
-    bus.createdAt = new Date(data.created_at);
-    bus.updatedAt = new Date(data.updated_at);
-    return bus;
-  }
-
-  /**
-   * Mapea múltiples registros de BD
-   */
-  private mapearBuses(data: any[]): Bus[] {
-    return data.map((item) => this.mapearBus(item));
-  }
-
-  /**
-   * Mapea la entidad Bus a datos para BD
-   */
-  private mapearBusADatos(bus: Bus) {
-    return {
-      numero: bus.numero,
-      placa: bus.placa.toUpperCase(),
-      chasis: bus.chasis,
-      carroceria: bus.carroceria,
-      cooperativa_id: bus.cooperativaId,
-      fotografia_url: bus.fotografiaUrl,
-      capacidad_normal: bus.capacidadNormal,
-      capacidad_vip: bus.capacidadVip,
-      estado: bus.estado,
-      updated_at: new Date().toISOString(),
-    };
-  }
-
-  /**
-   * Mapea un asiento de BD
-   */
-  private mapearAsiento(data: any): BusAsiento {
-    const asiento = new BusAsiento(
-      data.bus_id,
-      data.numero_asiento,
-      data.tipo_asiento_id,
-      data.tipo,
-      data.disponible
-    );
-    asiento.id = data.id;
-    asiento.pasajeroId = data.pasajero_id;
-    asiento.createdAt = new Date(data.created_at);
-    asiento.updatedAt = new Date(data.updated_at);
-    return asiento;
-  }
-
-  /**
-   * Mapea múltiples asientos
-   */
-  private mapearAsientos(data: any[]): BusAsiento[] {
-    return data.map((item) => this.mapearAsiento(item));
-  }
-
-  /**
-   * Obtiene asientos por tipo
-   */
-  private async obtenerAsientosPorTipo(
-    busId: string,
-    tipo: 'NORMAL' | 'VIP'
-  ): Promise<BusAsiento[]> {
-    const { data, error } = await supabase
-      .from(this.TABLA_ASIENTOS)
-      .select('*')
-      .eq('bus_id', busId)
-      .eq('tipo', tipo)
-      .order('numero_asiento', { ascending: true });
-
-    if (error) return [];
-    return this.mapearAsientos(data || []);
-  }
-
-  /**
-   * Crea asientos automáticamente para un bus
-   */
-  private async crearAsientosParaBus(
-    busId: string,
-    capacidadNormal: number,
-    capacidadVip: number
-  ): Promise<void> {
+  private async crearAsientosParaBus(busId: number, totalAsientos: number): Promise<void> {
     const asientos: any[] = [];
 
-    // Asientos normales
-    for (let i = 1; i <= capacidadNormal; i++) {
+    for (let i = 1; i <= totalAsientos; i++) {
       asientos.push({
         bus_id: busId,
-        numero_asiento: `A${i}`,
+        numero_asiento: `${i}`,
         tipo: 'NORMAL',
-        tipo_asiento_id: null, // Se obtendrá del tipo por defecto
-        disponible: true,
-      });
-    }
-
-    // Asientos VIP
-    for (let i = 1; i <= capacidadVip; i++) {
-      asientos.push({
-        bus_id: busId,
-        numero_asiento: `V${i}`,
-        tipo: 'VIP',
-        tipo_asiento_id: null, // Se obtendrá del tipo por defecto
+        tipo_asiento_id: null,
         disponible: true,
       });
     }
@@ -426,5 +248,54 @@ export class SupabaseBusRepository implements IBusRepository {
     if (error) {
       console.error('Error al crear asientos:', error.message);
     }
+  }
+
+  private mapearBus(data: any): Bus {
+    const bus = new Bus(
+      data.cooperativa_id,
+      String(data.numero),
+      data.placa,
+      data.total_asientos ?? 0,
+      data.estado ? 'Activo' : 'Inactivo'
+    );
+
+    bus.id = data.id;
+    bus.marcaChasis = data.marca_chasis;
+    bus.marcaCarroceria = data.marca_carroceria;
+    bus.anio = data.anio;
+    bus.fotoUrl = data.foto_url;
+    bus.createdAt = data.created_at ? new Date(data.created_at) : undefined;
+    return bus;
+  }
+
+  private mapearBusADatos(bus: Bus) {
+    return {
+      numero: Number(bus.numero),
+      placa: bus.placa.toUpperCase(),
+      marca_chasis: bus.marcaChasis,
+      marca_carroceria: bus.marcaCarroceria,
+      anio: bus.anio,
+      cooperativa_id: bus.cooperativaId,
+      foto_url: bus.fotoUrl,
+      total_asientos: bus.totalAsientos,
+      estado: bus.estado === 'Activo',
+      updated_at: new Date().toISOString(),
+    };
+  }
+
+  private mapearAsiento(data: any): BusAsiento {
+    const asiento = new BusAsiento(
+      data.bus_id,
+      data.tipo_asiento_id,
+      data.numero_asiento,
+      data.tipo
+    );
+
+    asiento.id = data.id;
+    asiento.disponible = data.disponible;
+    asiento.pasajeroId = data.pasajero_id;
+    asiento.createdAt = data.created_at ? new Date(data.created_at) : undefined;
+    asiento.updatedAt = data.updated_at ? new Date(data.updated_at) : undefined;
+    return asiento;
   }
 }
