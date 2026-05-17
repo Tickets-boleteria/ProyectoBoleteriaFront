@@ -2,16 +2,16 @@
  * SupabaseSeatTypeRepository.ts - Implementación de ISeatTypeRepository con Supabase
  */
 
-import { supabase } from '../Api/supabaseClient';
-import { SeatType } from '../../Domain/Entities/SeatType';
-import { ISeatTypeRepository } from '../../Domain/Repositories/ISeatTypeRepository';
+import { supabase } from './Api/supabaseClient';
+import { SeatType } from '../Domain/Entities/SeatType';
+import { ISeatTypeRepository } from '../Domain/Repositories/ISeatTypeRepository';
 import {
   SeatTypeNoEncontradoException,
   SeatTypeInvalidoException,
   ColorHexInvalidoException,
   NombreSeatTypeDuplicadoException,
   PrecioNegativoException,
-} from '../../Domain/Exceptions/BusExceptions';
+} from '../Domain/Exceptions/SeatTypeException';
 
 export class SupabaseSeatTypeRepository implements ISeatTypeRepository {
   private readonly TABLA = 'tipos_asientos';
