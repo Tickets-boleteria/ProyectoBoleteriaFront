@@ -2,10 +2,10 @@ export type EstadoHojaRuta = 'PROGRAMADA' | 'EN_CURSO' | 'FINALIZADA' | 'CANCELA
 export type TipoGeneracionHojaRuta = 'AUTOMATICA' | 'MANUAL';
 
 export interface HojaRuta {
-  id?: string;
-  frecuenciaId: string;
-  busId?: string | null;
-  choferId?: string | null;
+  id?: number;
+  frecuenciaId: number;
+  busId?: number | null;
+  choferId?: number | null;
   fechaSalida: string; // YYYY-MM-DD
   horaSalida: string; // HH:mm
   origen: string;
@@ -18,9 +18,9 @@ export interface HojaRuta {
 }
 
 export interface CrearHojaRutaManualDto {
-  frecuenciaId: string;
-  busId?: string;
-  choferId?: string;
+  frecuenciaId: number;
+  busId?: number;
+  choferId?: number;
   fechaSalida: string;
   horaSalida?: string;
   observaciones?: string;

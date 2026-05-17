@@ -11,7 +11,7 @@ export class SupabaseUsuarioRepository implements IUsuarioRepository {
     return data;
   }
 
-  async obtenerPorId(id: number) {
+  async obtenerPorId(id: string) {
     const { data, error } = await supabase
       .from('Usuarios')
       .select('Id, Cedula, Nombres, Apellidos, Email, Telefono, Rol, Activo')
@@ -61,7 +61,7 @@ export class SupabaseUsuarioRepository implements IUsuarioRepository {
     return data;
   }
 
-  async actualizar(id: number, datos: any) {
+  async actualizar(id: string, datos: any) {
     const { data, error } = await supabase
       .from('Usuarios')
       .update({
@@ -77,7 +77,7 @@ export class SupabaseUsuarioRepository implements IUsuarioRepository {
     return data;
   }
 
-  async desactivar(id: number) {
+  async desactivar(id: string) {
     const { error } = await supabase
       .from('Usuarios')
       .update({ Activo: false })

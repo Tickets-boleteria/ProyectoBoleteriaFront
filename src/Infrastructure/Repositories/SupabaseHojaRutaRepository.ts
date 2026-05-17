@@ -16,7 +16,7 @@ export class SupabaseHojaRutaRepository implements IHojaRutaRepository {
     return this.fromDatabase(data);
   }
 
-  async obtenerPorId(id: string): Promise<HojaRuta | null> {
+  async obtenerPorId(id: number): Promise<HojaRuta | null> {
     const { data, error } = await supabase
       .from(this.tabla)
       .select('*')
@@ -41,7 +41,7 @@ export class SupabaseHojaRutaRepository implements IHojaRutaRepository {
     return (data || []).map((item) => this.fromDatabase(item));
   }
 
-  async obtenerPorFrecuenciaYFecha(frecuenciaId: string, fechaSalida: string): Promise<HojaRuta | null> {
+  async obtenerPorFrecuenciaYFecha(frecuenciaId: number, fechaSalida: string): Promise<HojaRuta | null> {
     const { data, error } = await supabase
       .from(this.tabla)
       .select('*')
@@ -56,7 +56,7 @@ export class SupabaseHojaRutaRepository implements IHojaRutaRepository {
     return data ? this.fromDatabase(data) : null;
   }
 
-  async actualizarEstado(id: string, estado: EstadoHojaRuta): Promise<void> {
+  async actualizarEstado(id: number, estado: EstadoHojaRuta): Promise<void> {
     const { error } = await supabase
       .from(this.tabla)
       .update({ estado })

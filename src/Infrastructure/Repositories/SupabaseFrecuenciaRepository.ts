@@ -1,11 +1,11 @@
 import { IFrecuenciaRepository } from '../../Domain/Repositories/IFrecuenciaRepository';
-import { Frecuencia, Parada } from '../../Domain/Entities/Frecuencia';
+import { Frecuencia, ParadaIntermedia } from '../../Domain/Entities/Frecuencia';
 import { supabase } from '../Api/supabaseClient';
 
 export class SupabaseFrecuenciaRepository implements IFrecuenciaRepository {
-  async createFrecuencia(frecuencia: Omit<Frecuencia, 'id'>): Promise<Frecuencia> {
+  async crear(frecuencia: Frecuencia): Promise<Frecuencia> {
     const { data, error } = await supabase
-      .from('frecuencias')
+      .from('Frecuencias')
       .insert(frecuencia)
       .select()
       .single();
@@ -13,18 +13,18 @@ export class SupabaseFrecuenciaRepository implements IFrecuenciaRepository {
     return data;
   }
 
-  async getFrecuenciasActivas(): Promise<Frecuencia[]> {
+  async obtenerTodas(): Promise<Frecuencia[]> {
     const { data, error } = await supabase
-      .from('frecuencias')
+      .from('Frecuencias')
       .select('*')
       .eq('activa', true);
     if (error) throw new Error(`Error obteniendo frecuencias: ${error.message}`);
     return data || [];
   }
 
-  async getFrecuenciaById(id: string): Promise<Frecuencia | null> {
+  async obtenerPorId(id: number): Promise<Frecuencia | null> {
     const { data, error } = await supabase
-      .from('frecuencias')
+      .from('Frecuencias')
       .select('*')
       .eq('id', id)
       .single();
@@ -32,26 +32,29 @@ export class SupabaseFrecuenciaRepository implements IFrecuenciaRepository {
     return data || null;
   }
 
-  async updateFrecuencia(id: string, frecuencia: Partial<Frecuencia>): Promise<void> {
-    const { error } = await supabase
-      .from('frecuencias')
+  async actualizar(id: number, frecuencia: Partial<Frecuencia>): Promise<Frecuencia> {
+    const { data, error } = await supabase
+      .from('Frecuencias')
       .update(frecuencia)
-      .eq('id', id);
+      .eq('id', id)
+      .select()
+      .single();
     if (error) throw new Error(`Error actualizando frecuencia: ${error.message}`);
+    return data;
   }
 
-  async deleteFrecuencia(id: string): Promise<void> {
+  async eliminarLogico(id: number): Promise<void> {
     const { error } = await supabase
-      .from('frecuencias')
-      .delete()
+      .from('Frecuencias')
+      .update({ activa: false })
       .eq('id', id);
     if (error) throw new Error(`Error eliminando frecuencia: ${error.message}`);
   }
 
-  async addParadaToFrecuencia(frecuenciaId: string, parada: Omit<Parada, 'id'>): Promise<Parada> {
+  async agregarParada(frecuenciaId: number, parada: ParadaIntermedia): Promise<ParadaIntermedia> {
     const paradaCompleta = { ...parada, frecuenciaId };
     const { data, error } = await supabase
-      .from('paradas')
+      .from('ParadasIntermedia')
       .insert(paradaCompleta)
       .select()
       .single();
@@ -59,9 +62,9 @@ export class SupabaseFrecuenciaRepository implements IFrecuenciaRepository {
     return data;
   }
 
-  async getParadasByFrecuencia(frecuenciaId: string): Promise<Parada[]> {
+  async obtenerParadasPorFrecuencia(frecuenciaId: number): Promise<ParadaIntermedia[]> {
     const { data, error } = await supabase
-      .from('paradas')
+      .from('ParadasIntermedia')
       .select('*')
       .eq('frecuenciaId', frecuenciaId)
       .order('orden');
@@ -69,17 +72,20 @@ export class SupabaseFrecuenciaRepository implements IFrecuenciaRepository {
     return data || [];
   }
 
-  async updateParada(id: string, parada: Partial<Parada>): Promise<void> {
-    const { error } = await supabase
-      .from('paradas')
+  async actualizarParada(id: number, parada: Partial<ParadaIntermedia>): Promise<ParadaIntermedia> {
+    const { data, error } = await supabase
+      .from('ParadasIntermedia')
       .update(parada)
-      .eq('id', id);
+      .eq('id', id)
+      .select()
+      .single();
     if (error) throw new Error(`Error actualizando parada: ${error.message}`);
+    return data;
   }
 
-  async deleteParada(id: string): Promise<void> {
+  async eliminarParada(id: number): Promise<void> {
     const { error } = await supabase
-      .from('paradas')
+      .from('ParadasIntermedia')
       .delete()
       .eq('id', id);
     if (error) throw new Error(`Error eliminando parada: ${error.message}`);

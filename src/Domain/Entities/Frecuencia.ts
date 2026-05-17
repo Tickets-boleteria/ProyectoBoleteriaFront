@@ -1,16 +1,24 @@
-export interface Frecuencia {
-  id: string;
-  origen: string;
-  destino: string;
-  hora: string;
-  tipo: 'directo' | 'con_paradas';
-  activa: boolean;
+export class Frecuencia {
+  public id?: number;
+  public codigoAnt?: string;
+  public resolucionAnt?: string;
+  public createdAt?: Date;
+
+  constructor(
+    public cooperativaId: number,
+    public ciudadOrigen: string,
+    public ciudadDestino: string,
+    public horaSalida: string,
+    public esDirecto: boolean = true,
+    public activa: boolean = true
+  ) {}
 }
 
-export interface Parada {
-  id: string;
-  frecuenciaId: string;
-  nombre: string;
+export interface ParadaIntermedia {
+  id?: number;
+  frecuenciaId: number;
+  ciudad: string;
   orden: number;
+  minutosDesdeOrigen: number;
   permiteVenta: boolean;
 }

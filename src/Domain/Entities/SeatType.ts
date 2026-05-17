@@ -3,7 +3,7 @@
  */
 
 export class SeatType {
-  id?: string;
+  id?: number;
   nombre: string;
   colorHex: string;
   precioBase: number;
