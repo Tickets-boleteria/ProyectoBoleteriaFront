@@ -8,7 +8,7 @@ import {
   SeatTypeInvalidoException,
   NombreSeatTypeDuplicadoException,
   PrecioNegativoException,
-} from '../../Domain/Exceptions/BusExceptions';
+} from '../../Domain/Exceptions/SeatTypeException';
 
 /**
  * Caso de uso: Crear un nuevo tipo de asiento

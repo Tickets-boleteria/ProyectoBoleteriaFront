@@ -1,3 +1,5 @@
+import { DomainException } from './DomainException';
+
 export class SeatTypeException extends DomainException {
   constructor(message: string) {
     super(`[SeatTypeException] ${message}`);

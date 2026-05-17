@@ -1,3 +1,5 @@
+import { DomainException } from './DomainException';
+
 export class AsientoException extends DomainException {
   constructor(message: string) {
     super(`[AsientoException] ${message}`);
