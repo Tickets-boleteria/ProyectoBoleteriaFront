@@ -1,33 +1,46 @@
 import { IFrecuenciaRepository } from '../../Domain/Repositories/IFrecuenciaRepository';
-import { Frecuencia, Parada } from '../../Domain/Entities/Frecuencia';
+import { Frecuencia, ParadaIntermedia } from '../../Domain/Entities/Frecuencia';
 import { DomainException } from '../../Domain/Exceptions/DomainException';
+
+export interface CrearFrecuenciaInput {
+  cooperativaId: number;
+  ciudadOrigen: string;
+  ciudadDestino: string;
+  horaSalida: string;
+  esDirecto?: boolean;
+  codigoAnt?: string;
+  resolucionAnt?: string;
+}
 
 export class GestionarFrecuencias {
   constructor(private frecuenciaRepository: IFrecuenciaRepository) {}
 
-  async crearFrecuencia(frecuencia: Omit<Frecuencia, 'id'>): Promise<Frecuencia> {
-    if (!frecuencia.origen || !frecuencia.destino) {
+  async crearFrecuencia(frecuencia: Frecuencia): Promise<Frecuencia> {
+    if (!frecuencia.ciudadOrigen || !frecuencia.ciudadDestino) {
       throw new DomainException('Origen y destino son obligatorios');
     }
-    return await this.frecuenciaRepository.createFrecuencia(frecuencia);
+
+    return this.frecuenciaRepository.crear(frecuencia);
   }
 
   async obtenerFrecuenciasActivas(): Promise<Frecuencia[]> {
-    return await this.frecuenciaRepository.getFrecuenciasActivas();
+    return this.frecuenciaRepository.obtenerTodas();
   }
 
-  async agregarParada(frecuenciaId: string, parada: Omit<Parada, 'id'>): Promise<Parada> {
-    const frecuencia = await this.frecuenciaRepository.getFrecuenciaById(frecuenciaId);
+  async agregarParada(frecuenciaId: number, parada: ParadaIntermedia): Promise<ParadaIntermedia> {
+    const frecuencia = await this.frecuenciaRepository.obtenerPorId(frecuenciaId);
     if (!frecuencia) {
       throw new DomainException('Frecuencia no encontrada');
     }
-    if (frecuencia.tipo === 'directo' && parada.permiteVenta) {
+
+    if (frecuencia.esDirecto && parada.permiteVenta) {
       throw new DomainException('Frecuencias directas no permiten ventas en paradas');
     }
-    return await this.frecuenciaRepository.addParadaToFrecuencia(frecuenciaId, parada);
+
+    return this.frecuenciaRepository.agregarParada(frecuenciaId, parada);
   }
 
-  async obtenerParadasDeFrecuencia(frecuenciaId: string): Promise<Parada[]> {
-    return await this.frecuenciaRepository.getParadasByFrecuencia(frecuenciaId);
+  async obtenerParadasDeFrecuencia(frecuenciaId: number): Promise<ParadaIntermedia[]> {
+    return this.frecuenciaRepository.obtenerParadasPorFrecuencia(frecuenciaId);
   }
 }

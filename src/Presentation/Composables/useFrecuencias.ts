@@ -1,14 +1,14 @@
 import { ref } from 'vue';
 import { GestionarFrecuencias } from '../../Application/UseCases/GestionarFrecuencias';
 import { SupabaseFrecuenciaRepository } from '../../Infrastructure/Repositories/SupabaseFrecuenciaRepository';
-import { Frecuencia, Parada } from '../../Domain/Entities/Frecuencia';
+import { Frecuencia, ParadaIntermedia } from '../../Domain/Entities/Frecuencia';
 
 const frecuenciaRepository = new SupabaseFrecuenciaRepository();
 const gestionarFrecuencias = new GestionarFrecuencias(frecuenciaRepository);
 
 export function useFrecuencias() {
   const frecuencias = ref<Frecuencia[]>([]);
-  const paradas = ref<Parada[]>([]);
+  const paradas = ref<ParadaIntermedia[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
 
@@ -24,7 +24,7 @@ export function useFrecuencias() {
     }
   };
 
-  const crearFrecuencia = async (frecuencia: Omit<Frecuencia, 'id'>) => {
+  const crearFrecuencia = async (frecuencia: Frecuencia) => {
     try {
       const nuevaFrecuencia = await gestionarFrecuencias.crearFrecuencia(frecuencia);
       frecuencias.value.push(nuevaFrecuencia);
@@ -35,7 +35,7 @@ export function useFrecuencias() {
     }
   };
 
-  const cargarParadasDeFrecuencia = async (frecuenciaId: string) => {
+  const cargarParadasDeFrecuencia = async (frecuenciaId: number) => {
     loading.value = true;
     error.value = null;
     try {
@@ -47,7 +47,7 @@ export function useFrecuencias() {
     }
   };
 
-  const agregarParada = async (frecuenciaId: string, parada: Omit<Parada, 'id'>) => {
+  const agregarParada = async (frecuenciaId: number, parada: ParadaIntermedia) => {
     try {
       const nuevaParada = await gestionarFrecuencias.agregarParada(frecuenciaId, parada);
       paradas.value.push(nuevaParada);

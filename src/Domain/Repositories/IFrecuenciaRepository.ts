@@ -1,13 +1,14 @@
-import { Frecuencia, Parada } from '../Entities/Frecuencia';
+import { Frecuencia, ParadaIntermedia } from '../Entities/Frecuencia';
 
 export interface IFrecuenciaRepository {
-  createFrecuencia(frecuencia: Omit<Frecuencia, 'id'>): Promise<Frecuencia>;
-  getFrecuenciasActivas(): Promise<Frecuencia[]>;
-  getFrecuenciaById(id: string): Promise<Frecuencia | null>;
-  updateFrecuencia(id: string, frecuencia: Partial<Frecuencia>): Promise<void>;
-  deleteFrecuencia(id: string): Promise<void>;
-  addParadaToFrecuencia(frecuenciaId: string, parada: Omit<Parada, 'id'>): Promise<Parada>;
-  getParadasByFrecuencia(frecuenciaId: string): Promise<Parada[]>;
-  updateParada(id: string, parada: Partial<Parada>): Promise<void>;
-  deleteParada(id: string): Promise<void>;
+  crear(frecuencia: Frecuencia): Promise<Frecuencia>;
+  obtenerTodas(): Promise<Frecuencia[]>;
+  obtenerPorId(id: number): Promise<Frecuencia | null>;
+  actualizar(id: number, frecuencia: Partial<Frecuencia>): Promise<Frecuencia>;
+  eliminarLogico(id: number): Promise<void>;
+  
+  agregarParada(frecuenciaId: number, parada: ParadaIntermedia): Promise<ParadaIntermedia>;
+  obtenerParadasPorFrecuencia(frecuenciaId: number): Promise<ParadaIntermedia[]>;
+  actualizarParada(id: number, parada: Partial<ParadaIntermedia>): Promise<ParadaIntermedia>;
+  eliminarParada(id: number): Promise<void>;
 }

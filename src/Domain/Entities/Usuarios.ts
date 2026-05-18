@@ -1,10 +1,10 @@
 export interface User {
-  id: string;
+  id: string; // UUID
   email: string;
   cedula: string;
   nombres: string;
   apellidos: string;
   rol: string;
   activo: boolean;
-  cooperativaId: string | null;
+  cooperativaId: number | null;
 }

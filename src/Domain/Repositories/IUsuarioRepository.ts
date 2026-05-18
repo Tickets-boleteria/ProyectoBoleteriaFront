@@ -1,9 +1,9 @@
 export interface IUsuarioRepository {
   obtenerTodos(): Promise<any[]>;
-  obtenerPorId(id: number): Promise<any>;
+  obtenerPorId(id: string): Promise<any>; // UUID
   obtenerPorCedula(cedula: string): Promise<any>;
   obtenerPorRol(rol: string): Promise<any[]>;
   crear(usuario: any): Promise<any>;
-  actualizar(id: number, datos: any): Promise<any>;
-  desactivar(id: number): Promise<void>;
+  actualizar(id: string, datos: any): Promise<any>; // UUID
+  desactivar(id: string): Promise<void>; // UUID
 }

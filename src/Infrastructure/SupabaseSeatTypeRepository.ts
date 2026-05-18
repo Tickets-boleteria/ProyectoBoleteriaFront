@@ -52,7 +52,7 @@ export class SupabaseSeatTypeRepository implements ISeatTypeRepository {
   /**
    * Obtiene un tipo de asiento por su ID
    */
-  async obtenerPorId(id: string): Promise<SeatType | null> {
+  async obtenerPorId(id: number): Promise<SeatType | null> {
     const { data, error } = await supabase
       .from(this.TABLA)
       .select('*')
@@ -157,7 +157,7 @@ export class SupabaseSeatTypeRepository implements ISeatTypeRepository {
   /**
    * Elimina un tipo de asiento (eliminación lógica)
    */
-  async eliminar(id: string): Promise<void> {
+  async eliminar(id: number): Promise<void> {
     const { error } = await supabase
       .from(this.TABLA)
       .update({ estado: false })
@@ -170,7 +170,7 @@ export class SupabaseSeatTypeRepository implements ISeatTypeRepository {
   /**
    * Verifica si existe un nombre duplicado
    */
-  async existeNombre(nombre: string, excludeId?: string): Promise<boolean> {
+  async existeNombre(nombre: string, excludeId?: number): Promise<boolean> {
     let query = supabase
       .from(this.TABLA)
       .select('id', { count: 'exact' })

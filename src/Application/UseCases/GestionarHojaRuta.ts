@@ -13,7 +13,7 @@ export class GestionarHojaRuta {
   async generarAutomaticas(dto: GenerarHojasRutaAutomaticasDto): Promise<HojaRuta[]> {
     this.validarFecha(dto.fechaSalida);
 
-    const frecuenciasActivas = await this.frecuenciaRepository.getFrecuenciasActivas();
+    const frecuenciasActivas = await this.frecuenciaRepository.obtenerTodas();
     const hojasCreadas: HojaRuta[] = [];
 
     for (const frecuencia of frecuenciasActivas) {
@@ -31,9 +31,9 @@ export class GestionarHojaRuta {
         busId: null,
         choferId: null,
         fechaSalida: dto.fechaSalida,
-        horaSalida: frecuencia.hora,
-        origen: frecuencia.origen,
-        destino: frecuencia.destino,
+        horaSalida: frecuencia.horaSalida,
+        origen: frecuencia.ciudadOrigen,
+        destino: frecuencia.ciudadDestino,
         paradas,
         estado: 'PROGRAMADA',
         tipoGeneracion: 'AUTOMATICA',
@@ -49,7 +49,7 @@ export class GestionarHojaRuta {
   async crearManual(dto: CrearHojaRutaManualDto): Promise<HojaRuta> {
     this.validarFecha(dto.fechaSalida);
 
-    const frecuencia = await this.frecuenciaRepository.getFrecuenciaById(dto.frecuenciaId);
+    const frecuencia = await this.frecuenciaRepository.obtenerPorId(dto.frecuenciaId);
     if (!frecuencia) {
       throw new DomainException('No existe la frecuencia seleccionada');
     }
@@ -74,9 +74,9 @@ export class GestionarHojaRuta {
       busId: dto.busId ?? null,
       choferId: dto.choferId ?? null,
       fechaSalida: dto.fechaSalida,
-      horaSalida: dto.horaSalida || frecuencia.hora,
-      origen: frecuencia.origen,
-      destino: frecuencia.destino,
+      horaSalida: dto.horaSalida || frecuencia.horaSalida,
+      origen: frecuencia.ciudadOrigen,
+      destino: frecuencia.ciudadDestino,
       paradas,
       estado: 'PROGRAMADA',
       tipoGeneracion: 'MANUAL',
@@ -89,15 +89,15 @@ export class GestionarHojaRuta {
     return this.hojaRutaRepository.obtenerPorFecha(fechaSalida);
   }
 
-  async iniciarRuta(id: string): Promise<void> {
+  async iniciarRuta(id: number): Promise<void> {
     await this.hojaRutaRepository.actualizarEstado(id, 'EN_CURSO');
   }
 
-  async finalizarRuta(id: string): Promise<void> {
+  async finalizarRuta(id: number): Promise<void> {
     await this.hojaRutaRepository.actualizarEstado(id, 'FINALIZADA');
   }
 
-  async cancelarRuta(id: string): Promise<void> {
+  async cancelarRuta(id: number): Promise<void> {
     await this.hojaRutaRepository.actualizarEstado(id, 'CANCELADA');
   }
 
@@ -108,11 +108,11 @@ export class GestionarHojaRuta {
   }
 
   private async obtenerNombresParadas(frecuencia: Frecuencia): Promise<string[]> {
-    if (frecuencia.tipo === 'directo') return [];
+    if (frecuencia.esDirecto) return [];
 
-    const paradas = await this.frecuenciaRepository.getParadasByFrecuencia(frecuencia.id);
+    const paradas = await this.frecuenciaRepository.obtenerParadasPorFrecuencia(frecuencia.id);
     return paradas
       .sort((a, b) => a.orden - b.orden)
-      .map((parada) => parada.nombre);
+      .map((parada) => parada.ciudad);
   }
 }
