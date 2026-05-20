@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { supabase } from '../../../Infrastructure/Api/supabaseClient'
+import { useAuthStore } from '../../Store/authStore'
 
 interface RutaDisponible {
   id: number
@@ -315,19 +316,95 @@ const compraConfirmada = ref<null | {
   referencia: string
 }>(null)
 
-function confirmarCompra() {
+const authStore = useAuthStore()
+
+async function confirmarCompra() {
   if (!rutaSeleccionada.value || asientosSeleccionados.value.length === 0) return
   if (!captura.value) {
     alert('Por favor adjunta la captura del pago para continuar.')
     return
   }
-  compraConfirmada.value = {
-    codigo: null,
-    ruta: rutaSeleccionada.value,
-    asientos: [...asientosSeleccionados.value],
-    total: rutaSeleccionada.value.precioBase * asientosSeleccionados.value.length,
-    captura: captura.value,
-    referencia: referenciaPago.value,
+
+  try {
+    // 1) Crear registro de Venta (estado PENDIENTE)
+    const ventaPayload: any = {
+      RutaId: rutaSeleccionada.value.id,
+      FechaVenta: new Date().toISOString(),
+      Estado: 'PENDIENTE',
+    }
+
+    const { data: ventaData, error: ventaError } = await supabase
+      .from('Ventas')
+      .insert([ventaPayload])
+      .select()
+      .single()
+
+    if (ventaError) throw new Error(ventaError.message)
+    const ventaId = Number(getFieldValue(ventaData, 'Id') ?? getFieldValue(ventaData, 'id'))
+    if (!ventaId) throw new Error('No se pudo crear la venta.')
+
+    // 2) Obtener Asientos del bus para mapear número -> Id
+    const { data: asientosRows, error: asientosError } = await supabase
+      .from('Asientos')
+      .select('Id, NumeroAsiento, BusId')
+      .eq('BusId', rutaSeleccionada.value.busId)
+
+    if (asientosError) throw new Error(asientosError.message)
+
+    const filas = asientosRows || []
+    const asientoMap = new Map<string, number>()
+    for (const f of filas) {
+      const num = String(getFieldValue(f, 'NumeroAsiento') ?? getFieldValue(f, 'numeroasiento') ?? '')
+      const id = Number(getFieldValue(f, 'Id') ?? getFieldValue(f, 'id') ?? 0)
+      if (num && id) asientoMap.set(num.toString().padStart(2, '0'), id)
+      if (num && id) asientoMap.set(String(Number(num)), id)
+    }
+
+    // 3) Preparar inserts para Boletos
+    const cedulaPasajero = String(authStore.user?.cedula ?? '')
+    const precio = rutaSeleccionada.value.precioBase
+    const boletosInsert: any[] = []
+    for (const asientoNumero of asientosSeleccionados.value) {
+      const key = asientoNumero.toString().padStart(2, '0')
+      const asientoId = asientoMap.get(key) ?? asientoMap.get(String(Number(asientoNumero)))
+      if (!asientoId) throw new Error(`No se encontró el asiento ${asientoNumero} en la configuración del bus.`)
+      boletosInsert.push({
+        VentaId: ventaId,
+        AsientoId: asientoId,
+        PrecioFinal: precio,
+        CedulaPasajero: cedulaPasajero,
+        Estado: 'PENDIENTE',
+      })
+    }
+
+    if (boletosInsert.length === 0) throw new Error('No hay boletos para insertar.')
+
+    const { data: boletosData, error: boletosError } = await supabase
+      .from('Boletos')
+      .insert(boletosInsert)
+      .select()
+
+    if (boletosError) throw new Error(boletosError.message)
+
+    // 4) Actualizar UI y estado local
+    compraConfirmada.value = {
+      codigo: null,
+      ruta: rutaSeleccionada.value,
+      asientos: [...asientosSeleccionados.value],
+      total: precio * asientosSeleccionados.value.length,
+      captura: captura.value,
+      referencia: referenciaPago.value,
+    }
+
+    // Limpiar formulario de pago
+    mostrarPago.value = false
+    asientosSeleccionados.value = []
+    asientosOcupados.value = []
+    captura.value = null
+    referenciaPago.value = ''
+
+  } catch (err: any) {
+    error.value = err.message || 'No fue posible registrar la compra.'
   }
 }
 
