@@ -65,7 +65,6 @@
                   type="text"
                   class="w-full rounded-xl border bg-white px-4 py-3 text-gray-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100 mt-1"
                   :class="errorNombre ? 'border-red-400 bg-red-50' : 'border-slate-200'"
-                  placeholder="Gisselle Pérez"
                 />
                 <p v-if="errorNombre" class="mt-1 text-xs font-bold text-red-600">{{ errorNombre }}</p>
               </div>
@@ -79,7 +78,6 @@
                   maxlength="10"
                   class="w-full rounded-xl border bg-white px-4 py-3 text-gray-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100 mt-1"
                   :class="errorCedula ? 'border-red-400 bg-red-50' : 'border-slate-200'"
-                  placeholder="Ej. 1801234567"
                 />
                 <p v-if="errorCedula" class="mt-1 text-xs font-bold text-red-600">{{ errorCedula }}</p>
               </div>
@@ -93,7 +91,6 @@
                 type="email"
                 class="w-full rounded-xl border bg-white px-4 py-3 text-gray-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100 mt-1"
                 :class="errorEmail ? 'border-red-400 bg-red-50' : 'border-slate-200'"
-                placeholder="tu@email.com"
               />
               <p v-if="errorEmail" class="mt-1 text-xs font-bold text-red-600">{{ errorEmail }}</p>
             </div>
@@ -107,7 +104,6 @@
                   :type="showPassword ? 'text' : 'password'"
                   class="w-full rounded-xl border bg-white px-4 py-3 text-gray-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100 pr-12"
                   :class="errorPassword ? 'border-red-400 bg-red-50' : 'border-slate-200'"
-                  placeholder="••••••••"
                 />
                 <button type="button" @click="showPassword = !showPassword" class="absolute inset-y-0 right-0 px-4 text-slate-400 hover:text-blue-600">{{ showPassword ? '🐵' : '🙈' }}</button>
               </div>

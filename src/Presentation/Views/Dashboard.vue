@@ -1,5 +1,16 @@
 <template>
   <div class="space-y-6">
+    <section v-if="loading" class="rounded-2xl bg-white p-6 shadow-md border border-slate-100">
+      <p class="text-sm font-bold text-slate-500">Cargando dashboard desde la base de datos...</p>
+    </section>
+
+    <section v-else-if="error" class="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">
+      <p class="font-bold">No se pudo cargar el dashboard</p>
+      <p class="mt-1 text-sm">{{ error }}</p>
+      <button @click="recargar" class="mt-4 rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white">
+        Reintentar
+      </button>
+    </section>
 
     <!-- ====== BIENVENIDA EMOCIONAL ====== -->
     <section class="rounded-[2rem] bg-blue-700 p-6 lg:p-8 text-white shadow-2xl">
@@ -16,7 +27,7 @@
     </section>
 
     <!-- ====== RESUMEN COOPERATIVA (Admin / Oficinista) ====== -->
-    <section v-if="esCooperativa" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <section v-if="esCooperativa && resumen" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <article v-for="kpi in kpisCooperativa" :key="kpi.label"
         class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
         <div class="flex items-start justify-between">
@@ -31,7 +42,7 @@
     </section>
 
     <!-- ====== RESUMEN CLIENTE ====== -->
-    <section v-if="esCliente" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <section v-if="esCliente && resumen" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <article v-for="kpi in kpisCliente" :key="kpi.label"
         class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
         <div class="flex items-start justify-between">
@@ -44,7 +55,7 @@
     </section>
 
     <!-- ====== GRÁFICOS ====== -->
-    <section v-if="esCooperativa" class="grid gap-6 lg:grid-cols-3">
+    <section v-if="esCooperativa && resumen" class="grid gap-6 lg:grid-cols-3">
       <!-- Boletos vendidos últimos 7 días -->
       <div class="lg:col-span-2 rounded-2xl bg-white p-6 shadow-md border border-slate-100">
         <h3 class="font-black text-slate-900 mb-1">Boletos vendidos – últimos 7 días</h3>
@@ -82,7 +93,7 @@
     </section>
 
     <!-- Cliente: gastos por mes -->
-    <section v-if="esCliente" class="grid gap-6 lg:grid-cols-3">
+    <section v-if="esCliente && resumen" class="grid gap-6 lg:grid-cols-3">
       <div class="lg:col-span-2 rounded-2xl bg-white p-6 shadow-md border border-slate-100">
         <h3 class="font-black text-slate-900 mb-1">Tus gastos en viajes</h3>
         <p class="text-sm text-slate-500 mb-4">Últimos 6 meses.</p>
@@ -136,16 +147,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAuthStore } from '../Store/authStore'
+import { useDashboard } from '../Composables/useDashboard'
 
 const authStore = useAuthStore()
+const { resumen, loading, error, recargar } = useDashboard()
 
 const role = computed<string | null>(() => {
   const u: any = authStore.user
   return u?.rol || u?.role || u?.user_metadata?.rol || u?.user_metadata?.role || null
 })
-const esCooperativa = computed(() =>
-  ['Administrador', 'Admin', 'Oficinista'].includes(role.value || ''))
-const esCliente = computed(() => role.value === 'Cliente' || !role.value)
 
 const displayName = computed(() => {
   const u: any = authStore.user
@@ -160,79 +170,23 @@ const saludoHora = computed(() => {
 })
 
 const rolMensaje = computed(() => {
-  if (role.value === 'Administrador' || role.value === 'Admin')
-    return 'Aquí tienes el pulso de la cooperativa en un vistazo.'
-  if (role.value === 'Oficinista')
-    return 'Listo para registrar nuevas ventas con rapidez y precisión.'
-  if (role.value === 'Chofer')
-    return 'Tus rutas asignadas para hoy te esperan.'
-  return 'Encuentra tu próximo viaje en pocos clics.'
+  return resumen.value?.rolMensaje || 'Encuentra tu próximo viaje en pocos clics.'
 })
 
-// =================== DATOS MOCK (reemplaza por composables reales) ===================
-const kpisCooperativa = [
-  { label: 'Boletos hoy',      value: '142', delta: 8,  icon: '🎟️' },
-  { label: 'Recaudación',      value: '$ 1.842', delta: 12, icon: '💰' },
-  { label: 'Buses en ruta',    value: '18',  delta: 0,  icon: '🚌' },
-  { label: 'Ocupación media',  value: '74%', delta: -3, icon: '📈' },
-]
+const kpisCooperativa = computed(() => resumen.value?.kpis ?? [])
+const kpisCliente = computed(() => resumen.value?.kpis ?? [])
+const ventasSemana = computed(() => resumen.value?.ventasSemana ?? [])
+const rutasTop = computed(() => resumen.value?.rutasTop ?? [])
+const gastosMeses = computed(() => resumen.value?.gastosMeses ?? [])
+const proximoViaje = computed(() => resumen.value?.proximoViaje ?? null)
 
-const kpisCliente = [
-  { label: 'Viajes hechos',   value: '14', hint: 'Histórico total',   icon: '🗺️' },
-  { label: 'Gasto total',     value: '$ 168', hint: 'En 12 meses',    icon: '💵' },
-  { label: 'Próximo viaje',   value: '3 días', hint: 'Latacunga → Quito', icon: '⏳' },
-  { label: 'Cooperativa fav', value: 'Latinos', hint: '6 viajes',     icon: '⭐' },
-]
-
-const ventasSemana = [
-  { label: 'Lun', value: 98 },
-  { label: 'Mar', value: 112 },
-  { label: 'Mié', value: 130 },
-  { label: 'Jue', value: 121 },
-  { label: 'Vie', value: 165 },
-  { label: 'Sáb', value: 184 },
-  { label: 'Dom', value: 142 },
-]
-const maxVenta = computed(() => Math.max(...ventasSemana.map(v => v.value)))
-
-const rutasTop = [
-  { ruta: 'Latacunga – Quito',     boletos: 412 },
-  { ruta: 'Ambato – Guayaquil',    boletos: 388 },
-  { ruta: 'Riobamba – Cuenca',     boletos: 261 },
-  { ruta: 'Quito – Loja',          boletos: 198 },
-  { ruta: 'Manta – Quito',         boletos: 154 },
-]
-
-const gastosMeses = [
-  { label: 'Dic', value: 18 },
-  { label: 'Ene', value: 24 },
-  { label: 'Feb', value: 12 },
-  { label: 'Mar', value: 36 },
-  { label: 'Abr', value: 28 },
-  { label: 'May', value: 42 },
-]
-const maxGasto = computed(() => Math.max(...gastosMeses.map(g => g.value)))
-
-const proximoViaje = {
-  fecha: 'Sábado 23 may, 08:30',
-  origen: 'Latacunga',
-  destino: 'Quito',
-  cooperativa: 'Trans Latinos',
-  asiento: '12B',
-}
+const maxVenta = computed(() => Math.max(1, ...ventasSemana.value.map(v => v.value)))
+const maxGasto = computed(() => Math.max(1, ...gastosMeses.value.map(g => g.value)))
 
 const accesosRapidos = computed(() => {
-  if (esCooperativa.value) {
-    return [
-      { to: '/venta',             label: 'Nueva venta',     desc: 'Atender pasajero',     icon: '💳' },
-      { to: '/admin/hoja-ruta',   label: 'Hojas de ruta',   desc: 'Programar y revisar',  icon: '📋' },
-      { to: '/admin/frecuencias', label: 'Frecuencias',     desc: 'Horarios autorizados', icon: '⏰' },
-      { to: '/reportes',          label: 'Reportes',        desc: 'Auditoría y totales',  icon: '📊' },
-    ]
-  }
-  return [
-    { to: '/buscar',      label: 'Buscar rutas',  desc: 'Origen y destino',          icon: '🔎' },
-    { to: '/mis-boletos', label: 'Mis boletos',   desc: 'QR y comprobantes',         icon: '🎟️' },
-  ]
+  return resumen.value?.accesosRapidos ?? []
 })
+
+const esCooperativa = computed(() => resumen.value?.tipo === 'cooperativa')
+const esCliente = computed(() => resumen.value?.tipo === 'cliente')
 </script>

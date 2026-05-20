@@ -4,6 +4,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import Login from './Presentation/Views/Login.vue'
+import Dashboard from './Presentation/Views/Dashboard.vue'
 import Usuarios from './Presentation/Views/Usuarios.vue'
 import BusesAdmin from './Presentation/Views/admin/BusesAdmin.vue'
 import FrecuenciasAdmin from './Presentation/Views/admin/FrecuenciasAdmin.vue'
@@ -27,8 +28,7 @@ const router = createRouter({
   routes: [
     { path: '/login', name: 'Login', component: Login, meta: { public: true } },
 
-    // Restaurar la ruta raíz para no romper los <router-link> de los botones de navegación
-    { path: '/', name: 'Dashboard', redirect: '/login' },
+    { path: '/', name: 'Dashboard', component: Dashboard },
 
     // Administración
     { path: '/admin/usuarios',    name: 'Usuarios',         component: Usuarios,        meta: { roles: ADMIN } },
@@ -65,15 +65,8 @@ router.beforeEach(async (to) => {
     await authStore.initializeAuth()
   }
 
-  // Si está autenticado y trata de ir al login O a la raíz "/", 
-  // lo enviamos automáticamente a su dashboard específico
-  if ((to.path === '/login' || to.path === '/') && authStore.isAuthenticated) {
-    const u: any = authStore.user
-    const r = (u?.rol || u?.user_metadata?.rol || 'cliente').toLowerCase().trim()
-    if (ADMIN.includes(r)) return { path: '/admin/buses' }
-    if (OFICINISTA.includes(r)) return { path: '/venta' }
-    if (CHOFER.includes(r)) return { path: '/abordaje' }
-    return { path: '/buscar' }
+  if (to.path === '/login' && authStore.isAuthenticated) {
+    return { path: '/' }
   }
   if (!to.meta.public && !authStore.isAuthenticated) {
     return { path: '/login' }
@@ -85,8 +78,7 @@ router.beforeEach(async (to) => {
   const u: any = authStore.user
   const userRole = (u?.rol || u?.user_metadata?.rol || '').toLowerCase().trim()
 
-  // Si el usuario tiene el rol permitido, pasa. Si no, lo devolvemos a la raíz, 
-  // lo cual activará la regla de arriba y lo auto-redigirá a su lugar seguro.
+  // Si el usuario tiene el rol permitido, pasa. Si no, lo devolvemos a la raíz.
   if (userRole && allowedRoles.includes(userRole)) return true
   return { path: '/' }
 })

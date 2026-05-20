@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, onUnmounted, onMounted } from 'vue'
+import { supabase } from '../../../Infrastructure/Api/supabaseClient'
+import { useAuthStore } from '../../Store/authStore'
 
 const videoRef = ref<HTMLVideoElement | null>(null)
 const escaneando = ref(false)
@@ -9,14 +11,15 @@ const historial = ref<{ codigo: string; hora: string; estado: string }[]>([])
 
 let stream: MediaStream | null = null
 let detectorLoopId: number | null = null
+const authStore = useAuthStore()
 
-// Lista mock de boletos válidos
-const boletosValidos: Record<string, any> = {
-  'BOL-A1B2C3': { pasajero: 'Gisselle Pérez',     asiento: '12B', origen: 'Latacunga', destino: 'Quito' },
-  'BOL-X9Y8Z7': { pasajero: 'Carlos Tipán',       asiento: '08A', origen: 'Latacunga', destino: 'Cuenca' },
-  'BOL-P5Q6R7': { pasajero: 'Ma. Fernanda López', asiento: '04C', origen: 'Quito',     destino: 'Latacunga' },
-}
 const boletosAbordados = new Set<string>()
+
+const getFieldValue = (obj: any, fieldName: string) => {
+  if (!obj) return undefined
+  const key = Object.keys(obj).find(k => k.toLowerCase() === fieldName.toLowerCase())
+  return key ? obj[key] : undefined
+}
 
 async function iniciarCamara() {
   resultado.value = null
@@ -83,20 +86,105 @@ function procesarCodigo(codigo: string) {
     resultado.value = { tipo: 'error', mensaje: `Código no reconocido: ${limpio}` }
     return
   }
-  const boleto = boletosValidos[limpio]
-  if (!boleto) {
-    resultado.value = { tipo: 'error', mensaje: `Boleto inválido: ${limpio}` }
-    historial.value.unshift({ codigo: limpio, hora: new Date().toLocaleTimeString(), estado: '✗ Inválido' })
+  validarBoletoReal(limpio)
+}
+
+async function validarBoletoReal(codigo: string) {
+  if (boletosAbordados.has(codigo)) {
+    resultado.value = { tipo: 'duplicado', mensaje: `Este boleto ya fue usado: ${codigo}` }
+    historial.value.unshift({ codigo, hora: new Date().toLocaleTimeString(), estado: '⚠ Duplicado' })
     return
   }
-  if (boletosAbordados.has(limpio)) {
-    resultado.value = { tipo: 'duplicado', mensaje: `Este boleto ya fue usado: ${limpio}`, boleto }
-    historial.value.unshift({ codigo: limpio, hora: new Date().toLocaleTimeString(), estado: '⚠ Duplicado' })
-    return
+
+  try {
+    const { data: boletoData, error: boletoError } = await supabase
+      .from('Boletos')
+      .select(`
+        Id,
+        CodigoQr,
+        CodigoBarras,
+        Estado,
+        Ventas!inner(
+          Id,
+          Rutas!inner(
+            Id,
+            Fecha,
+            Frecuencias!inner(
+              Id,
+              CiudadOrigen,
+              CiudadDestino,
+              HoraSalida,
+              Cooperativas!inner(Id, Nombre)
+            )
+          )
+        ),
+        Asientos!inner(
+          NumeroAsiento,
+          Buses!inner(Placa)
+        )
+      `)
+      .or(`CodigoQr.eq.${codigo},CodigoBarras.eq.${codigo}`)
+      .limit(1)
+
+    if (boletoError) throw new Error(boletoError.message)
+
+    const boleto = boletoData?.[0]
+    if (!boleto) {
+      resultado.value = { tipo: 'error', mensaje: `Boleto inválido: ${codigo}` }
+      historial.value.unshift({ codigo, hora: new Date().toLocaleTimeString(), estado: '✗ Inválido' })
+      return
+    }
+
+    const { data: validaciones, error: validacionError } = await supabase
+      .from('ValidacionesBoleto')
+      .select('Id, BoletoId')
+      .eq('BoletoId', getFieldValue(boleto, 'Id'))
+      .limit(1)
+
+    if (validacionError) throw new Error(validacionError.message)
+
+    const ventas = boleto.Ventas ?? boleto.ventas ?? {}
+    const rutas = ventas.Rutas ?? ventas.rutas ?? {}
+    const frecuencias = rutas.Frecuencias ?? rutas.frecuencias ?? {}
+    const cooperativas = frecuencias.Cooperativas ?? frecuencias.cooperativas ?? {}
+    const asientos = boleto.Asientos ?? boleto.asientos ?? {}
+    const buses = asientos.Buses ?? asientos.buses ?? {}
+
+    const boletoLegible = {
+      pasajero: `Boleto ${String(getFieldValue(boleto, 'Id') ?? '')}`,
+      asiento: String(getFieldValue(asientos, 'NumeroAsiento') ?? '—'),
+      origen: String(getFieldValue(frecuencias, 'CiudadOrigen') ?? 'Origen'),
+      destino: String(getFieldValue(frecuencias, 'CiudadDestino') ?? 'Destino'),
+      fecha: String(getFieldValue(rutas, 'Fecha') ?? '').slice(0, 10),
+      hora: String(getFieldValue(frecuencias, 'HoraSalida') ?? '--:--').slice(0, 5),
+      cooperativa: String(getFieldValue(cooperativas, 'Nombre') ?? 'Cooperativa'),
+      busPlaca: String(getFieldValue(buses, 'Placa') ?? 'Sin placa'),
+    }
+
+    if ((validaciones || []).length > 0) {
+      resultado.value = { tipo: 'duplicado', mensaje: `Este boleto ya fue usado: ${codigo}`, boleto: boletoLegible }
+      historial.value.unshift({ codigo, hora: new Date().toLocaleTimeString(), estado: '⚠ Duplicado' })
+      return
+    }
+
+    const usuarioValidadorId = authStore.user?.id
+    if (usuarioValidadorId) {
+      const { error: insertError } = await supabase.from('ValidacionesBoleto').insert({
+        BoletoId: getFieldValue(boleto, 'Id'),
+        UsuarioValidadorId: usuarioValidadorId,
+        Dispositivo: navigator.userAgent,
+        Resultado: 'Aceptado',
+      })
+      if (insertError) throw new Error(insertError.message)
+    }
+
+    boletosAbordados.add(codigo)
+    resultado.value = { tipo: 'ok', mensaje: `Abordaje confirmado: ${codigo}`, boleto: boletoLegible }
+    historial.value.unshift({ codigo, hora: new Date().toLocaleTimeString(), estado: '✓ Abordado' })
+  } catch (err: any) {
+    resultado.value = { tipo: 'error', mensaje: err.message || 'No fue posible validar el boleto.' }
+    historial.value.unshift({ codigo, hora: new Date().toLocaleTimeString(), estado: '✗ Error' })
   }
-  boletosAbordados.add(limpio)
-  resultado.value = { tipo: 'ok', mensaje: `Abordaje confirmado: ${limpio}`, boleto }
-  historial.value.unshift({ codigo: limpio, hora: new Date().toLocaleTimeString(), estado: '✓ Abordado' })
 }
 
 function validarManual() {
@@ -148,7 +236,7 @@ onUnmounted(detenerCamara)
           <p class="text-xs font-bold text-slate-700 mb-2">¿Cámara no disponible? Ingresa el código manualmente:</p>
           <div class="flex gap-2">
             <input v-model="codigoManual" @keyup.enter="validarManual"
-              class="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2" placeholder="BOL-A1B2C3"/>
+              class="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2"/>
             <button @click="validarManual" class="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">Validar</button>
           </div>
         </div>

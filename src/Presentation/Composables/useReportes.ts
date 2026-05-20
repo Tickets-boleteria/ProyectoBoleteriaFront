@@ -1,7 +1,12 @@
 import { ref, onMounted } from 'vue';
 import { SupabaseAuditoriaRepository } from '../../Infrastructure/Repositories/SupabaseAuditoriaRepository';
-// Asumimos que crearemos un SupabaseBoletoRepository similar
-// import { SupabaseBoletoRepository } from '../../Infrastructure/Repositories/SupabaseBoletoRepository';
+import { supabase } from '../../Infrastructure/Api/supabaseClient';
+
+const getFieldValue = (obj: any, fieldName: string) => {
+  if (!obj) return undefined;
+  const key = Object.keys(obj).find(k => k.toLowerCase() === fieldName.toLowerCase());
+  return key ? obj[key] : undefined;
+};
 
 export function useReportes() {
   const boletos = ref<any[]>([]);
@@ -16,7 +21,24 @@ export function useReportes() {
   });
 
   const auditoriaRepo = new SupabaseAuditoriaRepository();
-  // const boletoRepo = new SupabaseBoletoRepository();
+
+  const mapearBoleto = (row: any) => {
+    const ventas = row.Ventas ?? row.ventas ?? {};
+    const rutas = ventas.Rutas ?? ventas.rutas ?? {};
+    const frecuencias = rutas.Frecuencias ?? rutas.frecuencias ?? {};
+    const cooperativas = frecuencias.Cooperativas ?? frecuencias.cooperativas ?? {};
+
+    return {
+      id: String(getFieldValue(row, 'Id') ?? getFieldValue(row, 'id') ?? ''),
+      fecha: String(getFieldValue(ventas, 'FechaVenta') ?? getFieldValue(ventas, 'fechaventa') ?? getFieldValue(row, 'CreatedAt') ?? getFieldValue(row, 'createdat') ?? '').slice(0, 10),
+      ruta: `${String(getFieldValue(frecuencias, 'CiudadOrigen') ?? 'Origen')} → ${String(getFieldValue(frecuencias, 'CiudadDestino') ?? 'Destino')}`,
+      cooperativa: String(getFieldValue(cooperativas, 'Nombre') ?? 'Cooperativa'),
+      precioBase: Number(getFieldValue(row, 'PrecioFinal') ?? getFieldValue(row, 'preciofinal') ?? 0) + Number(getFieldValue(row, 'DescuentoAplicado') ?? getFieldValue(row, 'descuentoaplicado') ?? 0),
+      precioFinal: Number(getFieldValue(row, 'PrecioFinal') ?? getFieldValue(row, 'preciofinal') ?? 0),
+      descuento: Number(getFieldValue(row, 'DescuentoAplicado') ?? getFieldValue(row, 'descuentoaplicado') ?? 0),
+      categoria: getFieldValue(row, 'EsMenor') ? 'nino' : getFieldValue(row, 'EsDiscapacitado') ? 'discapacidad' : getFieldValue(row, 'EsTerceraEdad') ? 'tercera_edad' : 'ninguno',
+    };
+  };
 
   async function cargarAuditoria() {
     try {
@@ -30,18 +52,60 @@ export function useReportes() {
     }
   }
 
-  // NOTA: La carga de boletos está pendiente hasta que el repositorio esté listo.
-  // Por ahora, mantendremos los mocks para esa parte para no romper la UI.
   async function cargarBoletos(filtros: any) {
-    // try {
-    //   loading.value.boletos = true;
-    //   error.value.boletos = '';
-    //   boletos.value = await boletoRepo.listarPorRango(filtros.desde, filtros.hasta);
-    // } catch (err: any) {
-    //   error.value.boletos = err.message || 'Error al cargar los boletos.';
-    // } finally {
-    //   loading.value.boletos = false;
-    // }
+    try {
+      loading.value.boletos = true;
+      error.value.boletos = '';
+
+      let query = supabase
+        .from('Boletos')
+        .select(`
+          Id,
+          PrecioFinal,
+          DescuentoAplicado,
+          EsMenor,
+          EsDiscapacitado,
+          EsTerceraEdad,
+          CreatedAt,
+          Ventas!inner(
+            Id,
+            FechaVenta,
+            Rutas!inner(
+              Id,
+              Fecha,
+              Frecuencias!inner(
+                Id,
+                CiudadOrigen,
+                CiudadDestino,
+                Cooperativas!inner(Id, Nombre)
+              )
+            )
+          )
+        `)
+        .order('CreatedAt', { ascending: false });
+
+      if (filtros?.desde) {
+        query = query.gte('CreatedAt', `${filtros.desde}T00:00:00`);
+      }
+      if (filtros?.hasta) {
+        query = query.lte('CreatedAt', `${filtros.hasta}T23:59:59`);
+      }
+
+      const { data, error: boletosError } = await query;
+      if (boletosError) throw new Error(boletosError.message);
+
+      const mapeados = (data || []).map(mapearBoleto);
+      boletos.value = mapeados.filter((b) => {
+        if (filtros?.cooperativa && b.cooperativa !== filtros.cooperativa) return false;
+        if (filtros?.ruta && b.ruta !== filtros.ruta) return false;
+        return true;
+      });
+    } catch (err: any) {
+      error.value.boletos = err.message || 'Error al cargar los boletos.';
+      boletos.value = [];
+    } finally {
+      loading.value.boletos = false;
+    }
   }
 
   onMounted(() => {

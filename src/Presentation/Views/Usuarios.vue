@@ -113,7 +113,7 @@ onMounted(cargarUsuarios)
       <div class="grid gap-4 sm:grid-cols-2">
         <div class="rounded-2xl bg-slate-50 p-3">
           <label class="text-xs font-bold text-slate-700">Cédula</label>
-          <input v-model="nuevoUsuario.cedula" maxlength="10" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" placeholder="1801234567"/>
+          <input v-model="nuevoUsuario.cedula" maxlength="10" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/>
         </div>
         <div class="rounded-2xl bg-slate-50 p-3">
           <label class="text-xs font-bold text-slate-700">Nombres</label>
@@ -159,7 +159,7 @@ onMounted(cargarUsuarios)
     <section class="rounded-2xl bg-white p-4 shadow-md border border-slate-100 flex flex-wrap items-end gap-3">
       <div class="flex-1 min-w-[200px]">
         <label class="text-xs font-bold text-slate-700">Buscar</label>
-        <input v-model="busqueda" type="text" placeholder="Cédula, nombre o email"
+        <input v-model="busqueda" type="text"
           class="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/>
       </div>
       <div>

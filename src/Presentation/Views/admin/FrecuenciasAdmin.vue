@@ -28,25 +28,25 @@ const { frecuencias, nuevaFrecuencia, loading, error, success, registrarFrecuenc
 
         <div>
           <label class="text-xs font-bold text-slate-700">Ciudad de Origen</label>
-          <input type="text" v-model="nuevaFrecuencia.ciudadOrigen" placeholder="Ej: Ambato" required
+          <input type="text" v-model="nuevaFrecuencia.ciudadOrigen" required
                  class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
         </div>
         
         <div>
           <label class="text-xs font-bold text-slate-700">Ciudad de Destino</label>
-          <input type="text" v-model="nuevaFrecuencia.ciudadDestino" placeholder="Ej: Quito" required
+          <input type="text" v-model="nuevaFrecuencia.ciudadDestino" required
                  class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
         </div>
 
         <div>
           <label class="text-xs font-bold text-slate-700">Código ANT (Opcional)</label>
-          <input type="text" v-model="nuevaFrecuencia.codigoAnt" placeholder="Ej: ANT-001"
+          <input type="text" v-model="nuevaFrecuencia.codigoAnt"
                  class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
         </div>
 
         <div>
           <label class="text-xs font-bold text-slate-700">Resolución ANT (Opcional)</label>
-          <input type="text" v-model="nuevaFrecuencia.resolucionAnt" placeholder="Ej: RES-2026-05"
+          <input type="text" v-model="nuevaFrecuencia.resolucionAnt"
                  class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
         </div>
         

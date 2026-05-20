@@ -37,8 +37,10 @@ export function useFrecuencias() {
     error.value = '';
     success.value = '';
     try {
-      // Obtenemos el ID de la cooperativa del usuario actual, o 1 por defecto
-      const cooperativaId = authStore.user?.cooperativaId || 1;
+      const cooperativaId = authStore.user?.cooperativaId;
+      if (!cooperativaId) {
+        throw new Error('No se encontró la cooperativa del usuario autenticado.');
+      }
       
       await repo.crear({ ...nuevaFrecuencia.value, cooperativaId });
       success.value = 'Trayecto (Frecuencia) registrado exitosamente.';

@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { supabase } from '../../../Infrastructure/Api/supabaseClient'
 import { useVentaDescuento } from '../../Composables/useVentaDescuento'
 
-// Mock de rutas disponibles
 interface RutaDisponible {
   id: number
+  frecuenciaId: number
+  busId: number
   origen: string
   destino: string
   hora: string
@@ -12,22 +14,157 @@ interface RutaDisponible {
   cooperativa: string
   precioBase: number
   asientosLibres: number
+  totalAsientos: number
   busPlaca: string
 }
 
-const rutasMock: RutaDisponible[] = [
-  { id: 1, origen: 'Latacunga', destino: 'Quito',     hora: '06:00', fecha: '2026-05-20', cooperativa: 'Trans Latinos', precioBase: 2.50,  asientosLibres: 6,  busPlaca: 'TBA-0234' },
-  { id: 2, origen: 'Latacunga', destino: 'Quito',     hora: '08:30', fecha: '2026-05-20', cooperativa: 'Trans Latinos', precioBase: 2.50,  asientosLibres: 22, busPlaca: 'TBA-0099' },
-  { id: 3, origen: 'Latacunga', destino: 'Cuenca',    hora: '07:30', fecha: '2026-05-20', cooperativa: 'Trans Latinos', precioBase: 12.00, asientosLibres: 34, busPlaca: 'TBA-0099' },
-  { id: 4, origen: 'Ambato',    destino: 'Guayaquil', hora: '21:00', fecha: '2026-05-20', cooperativa: 'Trans Latinos', precioBase: 9.50,  asientosLibres: 16, busPlaca: 'TBC-1192' },
-]
+type DbRow = Record<string, any>
+
+const getFieldValue = (obj: DbRow | null | undefined, fieldName: string) => {
+  if (!obj) return undefined
+  const key = Object.keys(obj).find(k => k.toLowerCase() === fieldName.toLowerCase())
+  return key ? obj[key] : undefined
+}
+
+const rutas = ref<RutaDisponible[]>([])
+const loading = ref(false)
+const error = ref('')
+
+const cargarPrecioBasePorBus = async (busIds: number[]) => {
+  const precios = new Map<number, number>()
+  if (!busIds.length) return precios
+  const { data, error: preciosError } = await supabase
+    .from('ConfiguracionesAsientos')
+    .select('BusId, PrecioBase')
+    .in('BusId', busIds)
+  if (preciosError) throw new Error(preciosError.message)
+  for (const fila of data || []) {
+    const busId = Number(getFieldValue(fila, 'BusId') ?? getFieldValue(fila, 'busid'))
+    const precio = Number(getFieldValue(fila, 'PrecioBase') ?? getFieldValue(fila, 'preciobase') ?? 0)
+    if (!precios.has(busId) || precio < (precios.get(busId) ?? precio)) {
+      precios.set(busId, precio)
+    }
+  }
+  return precios
+}
+
+const cargarAsientosVendidos = async (rutaIds: number[]) => {
+  const vendidos = new Map<number, number>()
+  if (!rutaIds.length) return vendidos
+  const { data: ventas, error: ventasError } = await supabase
+    .from('Ventas')
+    .select('Id, RutaId')
+    .in('RutaId', rutaIds)
+  if (ventasError) throw new Error(ventasError.message)
+  const ventasPorRuta = new Map<number, number[]>()
+  for (const venta of ventas || []) {
+    const rutaId = Number(getFieldValue(venta, 'RutaId') ?? getFieldValue(venta, 'rutaid'))
+    const ventaId = Number(getFieldValue(venta, 'Id') ?? getFieldValue(venta, 'id'))
+    const lista = ventasPorRuta.get(rutaId) ?? []
+    lista.push(ventaId)
+    ventasPorRuta.set(rutaId, lista)
+  }
+  const ventaIds = Array.from(ventasPorRuta.values()).flat()
+  if (!ventaIds.length) return vendidos
+  const { data: boletos, error: boletosError } = await supabase
+    .from('Boletos')
+    .select('VentaId')
+    .in('VentaId', ventaIds)
+  if (boletosError) throw new Error(boletosError.message)
+  const boletosPorVenta = new Map<number, number>()
+  for (const boleto of boletos || []) {
+    const ventaId = Number(getFieldValue(boleto, 'VentaId') ?? getFieldValue(boleto, 'ventaid'))
+    boletosPorVenta.set(ventaId, (boletosPorVenta.get(ventaId) ?? 0) + 1)
+  }
+  for (const rutaId of rutaIds) {
+    const ventasDeLaRuta = ventasPorRuta.get(rutaId) ?? []
+    const totalVendidos = ventasDeLaRuta.reduce((acc, ventaId) => acc + (boletosPorVenta.get(ventaId) ?? 0), 0)
+    vendidos.set(rutaId, totalVendidos)
+  }
+  return vendidos
+}
+
+const cargarRutas = async () => {
+  loading.value = true
+  error.value = ''
+  try {
+    const { data: rutasData, error: rutasError } = await supabase
+      .from('Rutas')
+      .select('Id, FrecuenciaId, BusId, Fecha')
+      .eq('Fecha', filtros.fecha)
+      .order('Id', { ascending: true })
+    if (rutasError) throw new Error(rutasError.message)
+
+    const rutasBase = rutasData || []
+    const frecuenciaIds = [...new Set(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'FrecuenciaId') ?? getFieldValue(fila, 'frecuenciaid'))))].filter(Boolean)
+    const busIds = [...new Set(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'BusId') ?? getFieldValue(fila, 'busid'))))].filter(Boolean)
+
+    const [frecuenciasResp, busesResp, preciosResp, vendidosResp] = await Promise.all([
+      frecuenciaIds.length ? supabase.from('Frecuencias').select('Id, CiudadOrigen, CiudadDestino, HoraSalida, CooperativaId').in('Id', frecuenciaIds) : Promise.resolve({ data: [], error: null } as any),
+      busIds.length ? supabase.from('Buses').select('Id, Placa, TotalAsientos, CooperativaId').in('Id', busIds) : Promise.resolve({ data: [], error: null } as any),
+      cargarPrecioBasePorBus(busIds),
+      cargarAsientosVendidos(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id'))))
+    ])
+
+    if (frecuenciasResp.error) throw new Error(frecuenciasResp.error.message)
+    if (busesResp.error) throw new Error(busesResp.error.message)
+
+    const frecuenciasPorId = new Map<number, DbRow>()
+    for (const fila of frecuenciasResp.data || []) {
+      frecuenciasPorId.set(Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id')), fila)
+    }
+    const busesPorId = new Map<number, DbRow>()
+    for (const fila of busesResp.data || []) {
+      busesPorId.set(Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id')), fila)
+    }
+    const coopIds = [...new Set([...(frecuenciasResp.data || []).map((f: DbRow) => Number(getFieldValue(f, 'CooperativaId') ?? getFieldValue(f, 'cooperativaid'))), ...(busesResp.data || []).map((f: DbRow) => Number(getFieldValue(f, 'CooperativaId') ?? getFieldValue(f, 'cooperativaid')))])].filter(Boolean)
+    const cooperativasResp = coopIds.length ? await supabase.from('Cooperativas').select('Id, Nombre').in('Id', coopIds) : { data: [], error: null }
+    if ((cooperativasResp as any).error) throw new Error((cooperativasResp as any).error.message)
+    const cooperativasPorId = new Map<number, DbRow>()
+    for (const fila of (cooperativasResp as any).data || []) {
+      cooperativasPorId.set(Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id')), fila)
+    }
+
+    rutas.value = rutasBase.map((fila: DbRow) => {
+      const id = Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id'))
+      const frecuenciaId = Number(getFieldValue(fila, 'FrecuenciaId') ?? getFieldValue(fila, 'frecuenciaid'))
+      const busId = Number(getFieldValue(fila, 'BusId') ?? getFieldValue(fila, 'busid'))
+      const frecuencia = frecuenciasPorId.get(frecuenciaId) || null
+      const bus = busesPorId.get(busId) || null
+      const cooperativaId = Number(getFieldValue(frecuencia, 'CooperativaId') ?? getFieldValue(bus, 'CooperativaId') ?? 0)
+      const cooperativa = cooperativasPorId.get(cooperativaId) || null
+      const totalAsientos = Number(getFieldValue(bus, 'TotalAsientos') ?? getFieldValue(bus, 'totalasientos') ?? 0)
+      const vendidos = vendidosResp.get(id) ?? 0
+
+      return {
+        id,
+        frecuenciaId,
+        busId,
+        origen: String(getFieldValue(frecuencia, 'CiudadOrigen') ?? 'Origen'),
+        destino: String(getFieldValue(frecuencia, 'CiudadDestino') ?? 'Destino'),
+        hora: String(getFieldValue(frecuencia, 'HoraSalida') ?? '--:--').slice(0, 5),
+        fecha: String(getFieldValue(fila, 'Fecha') ?? filtros.fecha),
+        cooperativa: String(getFieldValue(cooperativa, 'Nombre') ?? 'Cooperativa'),
+        precioBase: preciosResp.get(busId) ?? 0,
+        asientosLibres: Math.max(totalAsientos - vendidos, 0),
+        totalAsientos,
+        busPlaca: String(getFieldValue(bus, 'Placa') ?? 'Sin placa'),
+      }
+    })
+  } catch (err: any) {
+    error.value = err.message || 'No fue posible cargar las rutas.'
+    rutas.value = []
+  } finally {
+    loading.value = false
+  }
+}
 
 // PASO 1: Búsqueda
 const filtros = reactive({
   origen: '', destino: '', fecha: new Date().toISOString().slice(0, 10), hora: '',
 })
 
-const resultados = computed(() => rutasMock.filter(r => {
+const resultados = computed(() => rutas.value.filter(r => {
   return (!filtros.origen  || r.origen.toLowerCase().includes(filtros.origen.toLowerCase()))
       && (!filtros.destino || r.destino.toLowerCase().includes(filtros.destino.toLowerCase()))
       && (!filtros.fecha   || r.fecha === filtros.fecha)
@@ -71,7 +208,7 @@ function calcularDescuento() {
 
 // PASO 3: comprobante
 const ventaConfirmada = ref<null | {
-  codigo: string
+  codigo: string | null
   ruta: RutaDisponible
   pasajero: typeof pasajero
   precioFinal: number
@@ -88,7 +225,7 @@ function confirmarVenta() {
   const precioFinal = resultado.value?.precioFinal ?? rutaSeleccionada.value.precioBase
   const total = precioFinal * pasajero.cantidadBoletos
   ventaConfirmada.value = {
-    codigo: 'BOL-' + Math.random().toString(36).slice(2, 8).toUpperCase(),
+    codigo: null,
     ruta: rutaSeleccionada.value,
     pasajero: { ...pasajero },
     precioFinal,
@@ -111,6 +248,14 @@ function nuevaVenta() {
 }
 
 function imprimir() { window.print() }
+
+onMounted(() => {
+  void cargarRutas()
+})
+
+watch(() => filtros.fecha, () => {
+  void cargarRutas()
+})
 </script>
 
 <template>
@@ -121,7 +266,7 @@ function imprimir() { window.print() }
         <span class="text-4xl">✓</span>
         <div>
           <p class="text-emerald-100 text-sm font-bold uppercase tracking-wider">Venta registrada</p>
-          <h2 class="text-2xl font-black">Comprobante {{ ventaConfirmada.codigo }}</h2>
+          <h2 class="text-2xl font-black">Comprobante pendiente de registro</h2>
         </div>
       </div>
 
@@ -131,7 +276,7 @@ function imprimir() { window.print() }
           <p class="text-xs text-slate-500">Boletería Interprovincial · Comprobante de venta</p>
         </div>
         <dl class="grid grid-cols-2 gap-3 text-sm mb-4">
-          <dt class="font-bold text-slate-500">Código</dt>      <dd class="font-mono">{{ ventaConfirmada.codigo }}</dd>
+          <dt class="font-bold text-slate-500">Código</dt>      <dd class="font-mono">Pendiente de registro</dd>
           <dt class="font-bold text-slate-500">Fecha emisión</dt><dd>{{ new Date(ventaConfirmada.fecha).toLocaleString('es-EC') }}</dd>
           <dt class="font-bold text-slate-500">Pasajero</dt>    <dd>{{ ventaConfirmada.pasajero.nombres }} {{ ventaConfirmada.pasajero.apellidos }}</dd>
           <dt class="font-bold text-slate-500">Cédula</dt>      <dd>{{ cedula }}</dd>
@@ -158,6 +303,14 @@ function imprimir() { window.print() }
       <div>
         <h2 class="text-2xl font-black text-slate-900">Venta de boletos</h2>
         <p class="text-slate-500 text-sm">Atiende al pasajero en 3 pasos: buscar, registrar y confirmar.</p>
+      </div>
+
+      <div v-if="error" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+        {{ error }}
+      </div>
+
+      <div v-if="loading" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+        Cargando rutas reales desde la base de datos...
       </div>
 
       <!-- Stepper visual -->
@@ -187,11 +340,11 @@ function imprimir() { window.print() }
           <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div class="rounded-2xl bg-slate-50 p-3">
               <label class="text-xs font-bold text-slate-700">Origen</label>
-              <input v-model="filtros.origen" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1" placeholder="Latacunga"/>
+              <input v-model="filtros.origen" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
             </div>
             <div class="rounded-2xl bg-slate-50 p-3">
               <label class="text-xs font-bold text-slate-700">Destino</label>
-              <input v-model="filtros.destino" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1" placeholder="Quito"/>
+              <input v-model="filtros.destino" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
             </div>
             <div class="rounded-2xl bg-slate-50 p-3">
               <label class="text-xs font-bold text-slate-700">Fecha</label>
@@ -244,11 +397,11 @@ function imprimir() { window.print() }
           <div class="grid gap-4 sm:grid-cols-2">
             <div class="rounded-2xl bg-slate-50 p-3">
               <label class="text-xs font-bold text-slate-700">Cédula *</label>
-              <input v-model="cedula" maxlength="10" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1" placeholder="1801234567"/>
+              <input v-model="cedula" maxlength="10" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
             </div>
             <div class="rounded-2xl bg-slate-50 p-3">
               <label class="text-xs font-bold text-slate-700">Teléfono</label>
-              <input v-model="pasajero.telefono" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1" placeholder="0991234567"/>
+              <input v-model="pasajero.telefono" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
             </div>
             <div class="rounded-2xl bg-slate-50 p-3">
               <label class="text-xs font-bold text-slate-700">Nombres *</label>

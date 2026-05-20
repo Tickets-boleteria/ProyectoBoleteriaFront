@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { User } from '@supabase/supabase-js'
-import { loginUseCase } from '../../Application/UseCases/Login'
+import type { User } from '../../Domain/Entities/Usuarios'
+import { SupabaseAuthRepository } from '../../Infrastructure/Repositories/SupabaseAuthRepository'
 
+const authRepository = new SupabaseAuthRepository()
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
@@ -15,8 +16,7 @@ export const useAuthStore = defineStore('auth', () => {
     loading.value = true
     error.value = ''
     try {
-      const { session } = await loginUseCase.execute(email, password)
-      user.value = session?.user || null
+      user.value = await authRepository.signIn(email, password)
     } catch (err: any) {
       error.value = err.message
       throw err
@@ -28,7 +28,7 @@ export const useAuthStore = defineStore('auth', () => {
   const logout = async () => {
     loading.value = true
     try {
-      await loginUseCase.logout()
+      await authRepository.signOut()
       user.value = null
     } catch (err: any) {
       error.value = err.message
@@ -38,8 +38,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   const initializeAuth = async () => {
-    const currentUser = await loginUseCase.getCurrentUser()
-    user.value = currentUser || null
+    const currentUser = await authRepository.getCurrentUser()
+    user.value = currentUser
   }
 
   return {
