@@ -36,29 +36,41 @@
 
       <!-- Navegación -->
       <nav class="flex-1 py-3 overflow-y-auto overflow-x-hidden">
-        <router-link
-          v-for="item in visibleItems"
-          :key="item.to"
-          :to="item.to"
-          v-slot="{ isActive }"
-          custom
-        >
-          <a
-            :href="item.to"
-            @click.prevent="go(item.to)"
-            class="group flex items-center gap-3 mx-2 mb-1 px-3 py-3 rounded-xl transition-all duration-200 cursor-pointer"
-            :class="isActive
-              ? 'bg-white text-blue-700 shadow-md'
-              : 'text-blue-100 hover:bg-white/10'"
-            :title="!expanded ? item.label : ''"
+        <!-- Skeleton mientras la sesión se rehidrata: evita el parpadeo
+             en el que solo aparecen las rutas públicas al recargar -->
+        <template v-if="!ready">
+          <div
+            v-for="n in 5"
+            :key="n"
+            class="mx-2 mb-1 h-11 rounded-xl bg-white/10 animate-pulse"
+          />
+        </template>
+
+        <template v-else>
+          <router-link
+            v-for="item in visibleItems"
+            :key="item.to"
+            :to="item.to"
+            v-slot="{ isActive }"
+            custom
           >
-            <span class="text-xl shrink-0 w-6 text-center">{{ item.icon }}</span>
-            <span
-              class="text-sm font-bold whitespace-nowrap transition-opacity duration-200"
-              :class="expanded ? 'opacity-100' : 'opacity-0'"
-            >{{ item.label }}</span>
-          </a>
-        </router-link>
+            <a
+              :href="item.to"
+              @click.prevent="go(item.to)"
+              class="group flex items-center gap-3 mx-2 mb-1 px-3 py-3 rounded-xl transition-all duration-200 cursor-pointer"
+              :class="isActive
+                ? 'bg-white text-blue-700 shadow-md'
+                : 'text-blue-100 hover:bg-white/10'"
+              :title="!expanded ? item.label : ''"
+            >
+              <span class="text-xl shrink-0 w-6 text-center">{{ item.icon }}</span>
+              <span
+                class="text-sm font-bold whitespace-nowrap transition-opacity duration-200"
+                :class="expanded ? 'opacity-100' : 'opacity-0'"
+              >{{ item.label }}</span>
+            </a>
+          </router-link>
+        </template>
       </nav>
 
       <!-- Logout -->
@@ -98,12 +110,18 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../Store/authStore'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+
+// storeToRefs mantiene la reactividad de user/ready/role.
+// Si los desestructuras sin esto, pierden reactividad y NO se actualizan
+// cuando la sesión se rehidrata tras recargar.
+const { user, ready, role } = storeToRefs(authStore)
 
 const expanded = ref(false)
 
@@ -128,13 +146,8 @@ const items: NavItem[] = [
   { to: '/reportes',          label: 'Reportes',      icon: '📊', roles: ['Administrador', 'Admin'] },
 ]
 
-const role = computed<string | null>(() => {
-  const u: any = authStore.user
-  return u?.rol || u?.role || u?.user_metadata?.rol || u?.user_metadata?.role || null
-})
-
 const displayName = computed(() => {
-  const u: any = authStore.user
+  const u: any = user.value
   return u?.nombres || u?.user_metadata?.nombres || u?.email || 'Invitado'
 })
 
