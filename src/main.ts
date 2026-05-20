@@ -4,68 +4,95 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import Login from './Presentation/Views/Login.vue'
-import Historial from './Presentation/Views/Historial.vue'
 import Usuarios from './Presentation/Views/Usuarios.vue'
-import HojaRuta from './Presentation/Views/HojaRuta.vue'
+import BusesAdmin from './Presentation/Views/admin/BusesAdmin.vue'
+import FrecuenciasAdmin from './Presentation/Views/admin/FrecuenciasAdmin.vue'
+import RutasAdmin from './Presentation/Views/admin/RutasAdmin.vue'
+import HojaRutaAdmin from './Presentation/Views/admin/HojaRutaAdmin.vue'
+import VentaBoletos from './Presentation/Views/oficinista/VentaBoletos.vue'
+import BuscarRutas from './Presentation/Views/cliente/BuscarRutas.vue'
+import MisBoletos from './Presentation/Views/cliente/MisBoletos.vue'
+import ValidarQR from './Presentation/Views/chofer/ValidarQR.vue'
+import Reportes from './Presentation/Views/reportes/Reportes.vue'
 import { useAuthStore } from './Presentation/Store/authStore'
+
+const ADMIN = ['administrador', 'admin']
+const OFICINISTA = ['oficinista']
+const CHOFER = ['chofer']
+// Mantenemos 'usuario final' por compatibilidad con cuentas antiguas creadas previamente
+const CLIENTE = ['cliente', 'usuario final']
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/login', name: 'Login', component: Login },
-    { path: '/', name: 'Historial', component: Historial },
-    { path: '/usuarios', name: 'Usuarios', component: Usuarios, meta: { roles: ['Administrador'] } },
-    { path: '/hoja-ruta', name: 'HojaRuta', component: HojaRuta, meta: { roles: ['Administrador', 'Oficinista'] } },
-    { path: '/:pathMatch(.*)*', redirect: '/login' },
-  ]
+    { path: '/login', name: 'Login', component: Login, meta: { public: true } },
+
+    // Restaurar la ruta raíz para no romper los <router-link> de los botones de navegación
+    { path: '/', name: 'Dashboard', redirect: '/login' },
+
+    // Administración
+    { path: '/admin/usuarios',    name: 'Usuarios',         component: Usuarios,        meta: { roles: ADMIN } },
+    { path: '/admin/buses',       name: 'BusesAdmin',       component: BusesAdmin,      meta: { roles: ADMIN } },
+    { path: '/admin/frecuencias', name: 'FrecuenciasAdmin', component: FrecuenciasAdmin,meta: { roles: ADMIN } },
+    { path: '/admin/rutas',       name: 'RutasAdmin',       component: RutasAdmin,      meta: { roles: ADMIN } },
+    { path: '/admin/hoja-ruta',   name: 'HojaRutaAdmin',    component: HojaRutaAdmin,   meta: { roles: [...ADMIN, ...OFICINISTA] } },
+
+    // Ventas (Oficinista y Chofer según requerimientos)
+    { path: '/venta',             name: 'VentaBoletos',     component: VentaBoletos,    meta: { roles: [...ADMIN, ...OFICINISTA, ...CHOFER] } },
+
+    // Cliente (Flujo estrictamente aislado para evitar cruces con la interfaz de empleados)
+    { path: '/buscar',            name: 'BuscarRutas',      component: BuscarRutas,     meta: { roles: CLIENTE } },
+    { path: '/mis-boletos',       name: 'MisBoletos',       component: MisBoletos,      meta: { roles: CLIENTE } },
+
+    // Chofer
+    { path: '/abordaje',          name: 'ValidarQR',        component: ValidarQR,       meta: { roles: [...CHOFER, ...ADMIN] } },
+
+    // Reportes
+    { path: '/reportes',          name: 'Reportes',         component: Reportes,        meta: { roles: ADMIN } },
+
+    { path: '/:pathMatch(.*)*', redirect: '/' },
+  ],
 })
 
 const pinia = createPinia()
 const app = createApp(App)
-
-// Instalar Pinia antes de usar el store dentro del guard
 app.use(pinia)
 app.use(router)
 
-// Guard de rutas (ahora Pinia ya está instalado)
-router.beforeEach(async (to, from) => {
+router.beforeEach(async (to) => {
   const authStore = useAuthStore()
-
-  // Inicializar autenticación si el usuario aún no está cargado
   if (!authStore.user) {
     await authStore.initializeAuth()
   }
 
-  // authStore properties are unwrapped by Pinia when accessed directly
-  if (to.path === '/login' && authStore.isAuthenticated) {
-    return { path: '/' }
+  // Si está autenticado y trata de ir al login O a la raíz "/", 
+  // lo enviamos automáticamente a su dashboard específico
+  if ((to.path === '/login' || to.path === '/') && authStore.isAuthenticated) {
+    const u: any = authStore.user
+    const r = (u?.rol || u?.user_metadata?.rol || 'cliente').toLowerCase().trim()
+    if (ADMIN.includes(r)) return { path: '/admin/buses' }
+    if (OFICINISTA.includes(r)) return { path: '/venta' }
+    if (CHOFER.includes(r)) return { path: '/abordaje' }
+    return { path: '/buscar' }
   }
-
-  if (to.path !== '/login' && !authStore.isAuthenticated) {
+  if (!to.meta.public && !authStore.isAuthenticated) {
     return { path: '/login' }
   }
 
-  // Si la ruta no define restricciones por roles, permitir
-  const allowedRoles: string[] | undefined = (to.meta as any).roles
-  if (!allowedRoles || allowedRoles.length === 0) {
-    return true
-  }
+  const allowedRoles: string[] | undefined = (to.meta as any).roles?.map((r: string) => r.toLowerCase().trim())
+  if (!allowedRoles || allowedRoles.length === 0) return true
 
-  // Extraer rol del usuario, soportando diferentes shapes (supabase vs domain)
   const u: any = authStore.user
-  const userRole = u?.rol || u?.role || u?.user_metadata?.rol || u?.user_metadata?.role || null
+  const userRole = (u?.rol || u?.user_metadata?.rol || '').toLowerCase().trim()
 
-  if (!userRole) {
-    // No hay rol disponible; redirigir al login por seguridad
-    return { path: '/login' }
-  }
-
-  if (allowedRoles.includes(userRole)) {
-    return true
-  }
-
-  // Redirigir a raíz si no tiene permiso
+  // Si el usuario tiene el rol permitido, pasa. Si no, lo devolvemos a la raíz, 
+  // lo cual activará la regla de arriba y lo auto-redigirá a su lugar seguro.
+  if (userRole && allowedRoles.includes(userRole)) return true
   return { path: '/' }
 })
 
-app.mount('#app')
+// Esperamos a que el router resuelva la sesión de Supabase (las llamadas async)
+// ANTES de dibujar la aplicación de Vue. Esto elimina el parpadeo y la carga vacía.
+router.isReady().then(() => {
+  app.mount('#app')
+})

@@ -8,8 +8,15 @@ import { IRutaRepository } from '../../Domain/Repositories/IRutaRepository';
 import { Ruta } from '../../Domain/Entities/Ruta';
 import { DomainException } from '../../Domain/Exceptions/DomainException';
 
+// Extractor robusto para leer las columnas sin importar mayúsculas o minúsculas
+const getFieldValue = (obj: any, fieldName: string) => {
+  if (!obj) return undefined;
+  const key = Object.keys(obj).find(k => k.toLowerCase() === fieldName.toLowerCase());
+  return key ? obj[key] : undefined;
+};
+
 export class SupabaseRutaRepository implements IRutaRepository {
-  private readonly tabla = 'rutas_diarias';
+  private readonly tabla = 'RutasDiarias'; // Ajustado al estándar de tu BD (PascalCase)
 
   /**
    * Crear una nueva ruta diaria (asignar bus a frecuencia en una fecha)
@@ -54,10 +61,10 @@ export class SupabaseRutaRepository implements IRutaRepository {
   async verificarBusDisponible(busId: number, fecha: string): Promise<boolean> {
     const { data, error } = await supabase
       .from(this.tabla)
-      .select('id')
-      .eq('bus_id', busId)
-      .eq('fecha', fecha)
-      .in('estado', ['Programada', 'En curso', 'En proceso'])
+      .select('*')
+      .eq('BusId', busId)
+      .eq('Fecha', fecha)
+      .in('Estado', ['Programada', 'En curso', 'En proceso'])
       .limit(1);
 
     if (error) {
@@ -74,7 +81,7 @@ export class SupabaseRutaRepository implements IRutaRepository {
   async actualizarEstado(id: number, estado: string): Promise<void> {
     const { error } = await supabase
       .from(this.tabla)
-      .update({ estado })
+      .update({ Estado: estado })
       .eq('id', id);
 
     if (error) {
@@ -89,9 +96,9 @@ export class SupabaseRutaRepository implements IRutaRepository {
     const { data, error } = await supabase
       .from(this.tabla)
       .select('*')
-      .eq('bus_id', busId)
-      .eq('fecha', fecha)
-      .order('created_at', { ascending: true });
+      .eq('BusId', busId)
+      .eq('Fecha', fecha)
+      .order('CreatedAt', { ascending: true });
 
     if (error) {
       throw new DomainException(`Error al obtener rutas del bus: ${error.message}`);
@@ -107,9 +114,9 @@ export class SupabaseRutaRepository implements IRutaRepository {
     const { data, error } = await supabase
       .from(this.tabla)
       .select('*')
-      .eq('frecuencia_id', frecuenciaId)
-      .eq('fecha', fecha)
-      .order('created_at', { ascending: true });
+      .eq('FrecuenciaId', frecuenciaId)
+      .eq('Fecha', fecha)
+      .order('CreatedAt', { ascending: true });
 
     if (error) {
       throw new DomainException(`Error al obtener rutas de la frecuencia: ${error.message}`);
@@ -122,13 +129,14 @@ export class SupabaseRutaRepository implements IRutaRepository {
    * Mapear datos de Supabase a entidad Ruta
    */
   private mapearRuta(data: any): Ruta {
+    const createdAtVal = getFieldValue(data, 'createdat') ?? getFieldValue(data, 'created_at');
     return new Ruta(
-      data.frecuencia_id,
-      data.bus_id,
-      data.fecha,
-      data.estado || 'Programada',
-      data.id,
-      data.created_at ? new Date(data.created_at) : undefined
+      getFieldValue(data, 'frecuenciaid') ?? getFieldValue(data, 'frecuencia_id'),
+      getFieldValue(data, 'busid') ?? getFieldValue(data, 'bus_id'),
+      getFieldValue(data, 'fecha'),
+      getFieldValue(data, 'estado') || 'Programada',
+      getFieldValue(data, 'id'),
+      createdAtVal ? new Date(createdAtVal) : undefined
     );
   }
 
@@ -137,10 +145,10 @@ export class SupabaseRutaRepository implements IRutaRepository {
    */
   private mapearRutaADatos(ruta: Ruta) {
     return {
-      frecuencia_id: ruta.frecuenciaId,
-      bus_id: ruta.busId,
-      fecha: ruta.fecha,
-      estado: ruta.estado || 'Programada',
+      FrecuenciaId: ruta.frecuenciaId,
+      BusId: ruta.busId,
+      Fecha: ruta.fecha,
+      Estado: ruta.estado || 'Programada',
     };
   }
 }
