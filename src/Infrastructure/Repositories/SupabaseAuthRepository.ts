@@ -2,6 +2,24 @@ import { supabase } from '../Api/supabaseClient';
 import { IAuthRepository, SignUpPayload } from '../../Domain/Repositories/IAuthRepository';
 import { User } from '../../Domain/Entities/Usuarios';
 
+// Extractor robusto para mapear atributos de la DB sin importar el casing (rol, Rol, ROL)
+const getFieldValue = (obj: any, fieldName: string) => {
+  if (!obj) return undefined;
+  const key = Object.keys(obj).find(k => k.toLowerCase() === fieldName.toLowerCase());
+  return key ? obj[key] : undefined;
+};
+
+// Formateador estricto para asegurar que el rol siempre tenga el formato Capitalizado (ej. Administrador),
+// previniendo que los botones de la interfaz se oculten por diferencias de mayúsculas/minúsculas.
+const normalizeRole = (role: any): string => {
+  if (!role || typeof role !== 'string') return 'Cliente';
+  const r = role.trim().toLowerCase();
+  if (r === 'administrador' || r === 'admin') return 'Administrador';
+  if (r === 'oficinista') return 'Oficinista';
+  if (r === 'chofer') return 'Chofer';
+  return 'Cliente';
+};
+
 export class SupabaseAuthRepository implements IAuthRepository {
   async signUp({
     email,
@@ -21,7 +39,7 @@ export class SupabaseAuthRepository implements IAuthRepository {
           nombre: nombreCompleto,
           nombres: nombres.trim(),
           apellidos: apellidos.trim(),
-          rol: 'Usuario Final',
+          rol: 'Cliente',
           activo: true
         }
       }
@@ -41,15 +59,30 @@ export class SupabaseAuthRepository implements IAuthRepository {
 
     const metadata = data.user.user_metadata;
 
+    const cleanEmail = (data.user.email || '').trim();
+    
+    let { data: dbUser, error: dbError } = await supabase
+      .from('Usuarios')
+      .select('*')
+      .ilike('email', cleanEmail)
+      .limit(1)
+      .then(res => ({ data: res.data?.[0], error: res.error }));
+
+    // Fallback de seguridad en caso de que la tabla exija el casing estricto "Email"
+    if (!dbUser && dbError) {
+      const res = await supabase.from('Usuarios').select('*').ilike('Email', cleanEmail).limit(1);
+      dbUser = res.data?.[0];
+    }
+
     return {
       id: data.user.id,
-      cedula: metadata?.cedula ?? '',
-      nombres: metadata?.nombres ?? metadata?.nombre ?? '',
-      apellidos: metadata?.apellidos ?? '',
+      cedula: getFieldValue(dbUser, 'cedula') ?? metadata?.cedula ?? '',
+      nombres: getFieldValue(dbUser, 'nombres') ?? metadata?.nombres ?? metadata?.nombre ?? '',
+      apellidos: getFieldValue(dbUser, 'apellidos') ?? metadata?.apellidos ?? '',
       email: data.user.email ?? '',
-      rol: metadata?.rol ?? 'Cliente',
-      activo: metadata?.activo ?? true,
-      cooperativaId: metadata?.cooperativaId ?? null
+      rol: normalizeRole(getFieldValue(dbUser, 'rol') ?? metadata?.rol),
+      activo: getFieldValue(dbUser, 'activo') ?? metadata?.activo ?? true,
+      cooperativaId: getFieldValue(dbUser, 'cooperativaid') ?? metadata?.cooperativaId ?? null
     };
   }
 
@@ -64,15 +97,29 @@ export class SupabaseAuthRepository implements IAuthRepository {
 
     const metadata = session.user.user_metadata;
 
+    const cleanEmail = (session.user.email || '').trim();
+    
+    let { data: dbUser, error: dbError } = await supabase
+      .from('Usuarios')
+      .select('*')
+      .ilike('email', cleanEmail)
+      .limit(1)
+      .then(res => ({ data: res.data?.[0], error: res.error }));
+
+    if (!dbUser && dbError) {
+      const res = await supabase.from('Usuarios').select('*').ilike('Email', cleanEmail).limit(1);
+      dbUser = res.data?.[0];
+    }
+
     return {
       id: session.user.id,
-      cedula: metadata?.cedula ?? '',
-      nombres: metadata?.nombres ?? metadata?.nombre ?? '',
-      apellidos: metadata?.apellidos ?? '',
+      cedula: getFieldValue(dbUser, 'cedula') ?? metadata?.cedula ?? '',
+      nombres: getFieldValue(dbUser, 'nombres') ?? metadata?.nombres ?? metadata?.nombre ?? '',
+      apellidos: getFieldValue(dbUser, 'apellidos') ?? metadata?.apellidos ?? '',
       email: session.user.email ?? '',
-      rol: metadata?.rol ?? 'Cliente',
-      activo: metadata?.activo ?? true,
-      cooperativaId: metadata?.cooperativaId ?? null
+      rol: normalizeRole(getFieldValue(dbUser, 'rol') ?? metadata?.rol),
+      activo: getFieldValue(dbUser, 'activo') ?? metadata?.activo ?? true,
+      cooperativaId: getFieldValue(dbUser, 'cooperativaid') ?? metadata?.cooperativaId ?? null
     };
   }
 }

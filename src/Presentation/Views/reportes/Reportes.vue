@@ -1,11 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useReportes } from '../../Composables/useReportes'
 
-/* ──────────────────────────────────────────────────────────────────────────
- *  MOCK DATA  -  Reemplaza con tus repositorios reales
- *  - boletosMock        → SupabaseBoletoRepository.listarPorRango()
- *  - auditoriaMock      → SupabaseAuditoriaRepository.listar()
- * ────────────────────────────────────────────────────────────────────────── */
+const { auditoria, loading, error, cargarBoletos } = useReportes()
 
 type Categoria = 'ninguno' | 'nino' | 'discapacidad' | 'tercera_edad'
 
@@ -19,6 +16,7 @@ interface BoletoReporte {
   descuento: number
   categoria: Categoria
 }
+type TipoCambio = 'Normal' | 'Estándar' | 'Emergencia' | 'Implementado'
 
 interface AuditoriaEntry {
   id: string
@@ -27,6 +25,7 @@ interface AuditoriaEntry {
   rol: string
   accion: string
   modulo: string
+  tipoCambio: TipoCambio
   detalle: string
 }
 
@@ -48,19 +47,6 @@ const boletosMock: BoletoReporte[] = [
   { id: 'B-015', fecha: '2026-05-20', ruta: 'Quito → Cuenca',     cooperativa: 'Coop. Patria',            precioBase: 14, precioFinal: 9,    descuento: 5,   categoria: 'tercera_edad' },
 ]
 
-const auditoriaMock: AuditoriaEntry[] = [
-  { id: 'A-001', fecha: '2026-05-20 14:32', usuario: 'Carlos Mendez',    rol: 'Administrador', accion: 'Crear',     modulo: 'Buses',       detalle: 'Registró bus PCH-1248 (50 asientos)' },
-  { id: 'A-002', fecha: '2026-05-20 13:15', usuario: 'María López',      rol: 'Oficinista',    accion: 'Venta',     modulo: 'Boletería',   detalle: 'Vendió boleto BOL-A1B2 ruta Quito-Guayaquil' },
-  { id: 'A-003', fecha: '2026-05-20 12:50', usuario: 'Carlos Mendez',    rol: 'Administrador', accion: 'Modificar', modulo: 'Frecuencias', detalle: 'Editó frecuencia FQG-08:00 (precio: $12)' },
-  { id: 'A-004', fecha: '2026-05-20 11:42', usuario: 'Juan Pérez',       rol: 'Chofer',        accion: 'Validar',   modulo: 'Abordaje',    detalle: 'Validó 38 boletos en ruta Quito-Cuenca' },
-  { id: 'A-005', fecha: '2026-05-20 10:30', usuario: 'María López',      rol: 'Oficinista',    accion: 'Descuento', modulo: 'Boletería',   detalle: 'Aplicó descuento tercera edad ($5 de $14)' },
-  { id: 'A-006', fecha: '2026-05-20 09:18', usuario: 'Carlos Mendez',    rol: 'Administrador', accion: 'Crear',     modulo: 'Hoja Ruta',   detalle: 'Generó hojas de ruta automáticas (12 rutas)' },
-  { id: 'A-007', fecha: '2026-05-19 17:55', usuario: 'Ana Torres',       rol: 'Oficinista',    accion: 'Cancelar',  modulo: 'Boletería',   detalle: 'Canceló boleto BOL-X9Y8 a pedido del cliente' },
-  { id: 'A-008', fecha: '2026-05-19 16:20', usuario: 'Carlos Mendez',    rol: 'Administrador', accion: 'Desactivar',modulo: 'Usuarios',    detalle: 'Desactivó usuario operador-temp@boleteria.ec' },
-  { id: 'A-009', fecha: '2026-05-19 15:10', usuario: 'Juan Pérez',       rol: 'Chofer',        accion: 'Finalizar', modulo: 'Hoja Ruta',   detalle: 'Finalizó ruta Ambato-Guayaquil (32 pasajeros)' },
-  { id: 'A-010', fecha: '2026-05-19 11:05', usuario: 'Carlos Mendez',    rol: 'Administrador', accion: 'Crear',     modulo: 'Rutas',       detalle: 'Habilitó ruta Quito-Cuenca para 2026-05-25' },
-]
-
 /* ──────────────────────────────────────────────────────────────────────────
  *  FILTROS
  * ────────────────────────────────────────────────────────────────────────── */
@@ -70,6 +56,12 @@ const filtros = ref({
   cooperativa: '',
   ruta: '',
 })
+
+// Cuando los filtros cambien, recargar los datos de boletos
+watch(filtros, (nuevosFiltros) => {
+  // NOTA: Descomentar cuando el repositorio de boletos esté listo
+  // cargarBoletos(nuevosFiltros)
+}, { deep: true })
 
 const cooperativas = computed(() => Array.from(new Set(boletosMock.map(b => b.cooperativa))))
 const rutas         = computed(() => Array.from(new Set(boletosMock.map(b => b.ruta))))
@@ -138,16 +130,19 @@ const maxIngresoRuta = computed(() => Math.max(1, ...ingresosPorRuta.value.map(r
 /* ──────────────────────────────────────────────────────────────────────────
  *  AUDITORÍA - filtro por rol y módulo
  * ────────────────────────────────────────────────────────────────────────── */
-const filtroAuditoria = ref({ rol: '', modulo: '' })
+const filtroAuditoria = ref({ rol: '', modulo: '', tipoCambio: '' })
 
-const auditoriaFiltrada = computed(() => auditoriaMock.filter(a => {
+const auditoriaFiltrada = computed(() => auditoria.value.filter((a: AuditoriaEntry) => {
   if (filtroAuditoria.value.rol    && a.rol    !== filtroAuditoria.value.rol)    return false
   if (filtroAuditoria.value.modulo && a.modulo !== filtroAuditoria.value.modulo) return false
+  if (filtroAuditoria.value.tipoCambio && a.tipoCambio !== filtroAuditoria.value.tipoCambio) return false
   return true
 }))
 
-const rolesAud   = computed(() => Array.from(new Set(auditoriaMock.map(a => a.rol))))
-const modulosAud = computed(() => Array.from(new Set(auditoriaMock.map(a => a.modulo))))
+// Fijamos los 4 tipos de cambios obligatorios para el dashboard de auditoría (así mostrará 0 si no hay ninguno)
+const tiposCambio: TipoCambio[] = ['Normal', 'Estándar', 'Emergencia', 'Implementado']
+const rolesAud   = computed(() => Array.from(new Set(auditoria.value.map((a: AuditoriaEntry) => a.rol))))
+const modulosAud = computed(() => Array.from(new Set(auditoria.value.map((a: AuditoriaEntry) => a.modulo))))
 
 const colorAccion = (accion: string) => {
   const map: Record<string, string> = {
@@ -163,9 +158,20 @@ const colorAccion = (accion: string) => {
   return map[accion] ?? 'bg-slate-100 text-slate-700'
 }
 
-/* ──────────────────────────────────────────────────────────────────────────
- *  EXPORTAR  (placeholders - implementar con jsPDF / blob CSV)
- * ────────────────────────────────────────────────────────────────────────── */
+const colorTipoCambio = (tipo: TipoCambio) => {
+  const map: Record<TipoCambio, string> = {
+    'Normal': 'bg-sky-100 text-sky-700',
+    'Estándar': 'bg-slate-100 text-slate-700',
+    'Emergencia': 'bg-red-100 text-red-700',
+    'Implementado': 'bg-emerald-100 text-emerald-700',
+  }
+  return map[tipo]
+}
+
+const kpisAuditoria = computed(() => {
+  return tiposCambio.map(tipo => ({ tipo, total: auditoriaFiltrada.value.filter((a: AuditoriaEntry) => a.tipoCambio === tipo).length }))
+});
+
 const exportarCSV = () => {
   const headers = ['ID', 'Fecha', 'Ruta', 'Cooperativa', 'Precio Base', 'Descuento', 'Precio Final', 'Categoría']
   const rows = boletosFiltrados.value.map(b =>
@@ -396,6 +402,18 @@ const limpiarFiltros = () => {
       </div>
     </div>
 
+    <!-- KPIs de Auditoría -->
+    <div class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
+      <h2 class="text-sm font-black uppercase tracking-wider text-slate-700 mb-4">Resumen de Cambios</h2>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div v-for="kpi in kpisAuditoria" :key="kpi.tipo" class="rounded-xl p-4" :class="colorTipoCambio(kpi.tipo)">
+          <p class="text-xs font-bold uppercase tracking-wider">{{ kpi.tipo }}</p>
+          <p class="text-2xl font-black">{{ kpi.total }}</p>
+        </div>
+      </div>
+    </div>
+
+
     <!-- Detalle de boletos -->
     <div class="rounded-2xl bg-white shadow-md border border-slate-100 overflow-hidden">
       <div class="p-5 border-b border-slate-100 flex items-center justify-between">
@@ -468,6 +486,11 @@ const limpiarFiltros = () => {
     <!-- Log de auditoría -->
     <div class="rounded-2xl bg-white shadow-md border border-slate-100 overflow-hidden">
       <div class="p-5 border-b border-slate-100">
+        <div v-if="error.auditoria" role="alert"
+             class="p-4 mb-4 text-sm text-red-700 bg-red-100 rounded-lg">
+          <strong>Error:</strong> {{ error.auditoria }}
+        </div>
+
         <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-3">
           <div>
             <h2 class="text-sm font-black uppercase tracking-wider text-slate-700">
@@ -476,9 +499,9 @@ const limpiarFiltros = () => {
             <p class="text-xs text-slate-500 mt-1">
               Acciones realizadas por administradores, oficinistas y choferes.
             </p>
-          </div>
+          </div>          
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <select
             v-model="filtroAuditoria.rol"
             class="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
@@ -493,6 +516,13 @@ const limpiarFiltros = () => {
             <option value="">Todos los módulos</option>
             <option v-for="m in modulosAud" :key="m" :value="m">{{ m }}</option>
           </select>
+          <select
+            v-model="filtroAuditoria.tipoCambio"
+            class="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+          >
+            <option value="">Todos los tipos</option>
+            <option v-for="t in tiposCambio" :key="t" :value="t">{{ t }}</option>
+          </select>
         </div>
       </div>
       <div class="overflow-x-auto">
@@ -503,17 +533,23 @@ const limpiarFiltros = () => {
               <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Usuario</th>
               <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Rol</th>
               <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Acción</th>
+              <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Tipo de Cambio</th>
               <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Módulo</th>
               <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Detalle</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
-            <tr v-if="auditoriaFiltrada.length === 0">
-              <td colspan="6" class="px-4 py-12 text-center text-sm text-slate-500">
+            <tr v-if="loading.auditoria">
+              <td colspan="7" class="px-4 py-12 text-center text-sm text-slate-500">
+                Cargando registros de auditoría...
+              </td>
+            </tr>
+            <tr v-else-if="auditoriaFiltrada.length === 0">
+              <td colspan="7" class="px-4 py-12 text-center text-sm text-slate-500">
                 No hay registros para los filtros seleccionados.
               </td>
             </tr>
-            <tr v-for="a in auditoriaFiltrada" :key="a.id" class="hover:bg-slate-50">
+            <tr v-for="a in (auditoriaFiltrada as AuditoriaEntry[])" :key="a.id" class="hover:bg-slate-50">
               <td class="px-4 py-3 text-xs font-mono text-slate-500">{{ a.fecha }}</td>
               <td class="px-4 py-3 text-sm font-bold text-slate-800">{{ a.usuario }}</td>
               <td class="px-4 py-3">
@@ -527,6 +563,11 @@ const limpiarFiltros = () => {
                   :class="colorAccion(a.accion)"
                 >
                   {{ a.accion }}
+                </span>
+              </td>
+              <td class="px-4 py-3">
+                <span class="inline-block px-2.5 py-1 rounded-full text-xs font-bold" :class="colorTipoCambio(a.tipoCambio)">
+                  {{ a.tipoCambio }}
                 </span>
               </td>
               <td class="px-4 py-3 text-sm text-slate-600">{{ a.modulo }}</td>

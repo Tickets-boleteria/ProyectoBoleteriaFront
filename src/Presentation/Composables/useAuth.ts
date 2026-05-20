@@ -1,5 +1,7 @@
 import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { SupabaseAuthRepository } from '../../Infrastructure/Repositories/SupabaseAuthRepository';
+import { useAuthStore } from '../Store/authStore';
 
 const authRepository = new SupabaseAuthRepository();
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -7,6 +9,8 @@ const MIN_PASSWORD_LENGTH = 8;
 const COOLDOWN_KEY = 'boleteria-auth-cooldown';
 
 export function useAuth() {
+  const router = useRouter();
+  const authStore = useAuthStore();
   const email = ref('');
   const password = ref('');
   // nombre: campo de nombre completo (p. ej. "Gisselle Pérez")
@@ -17,7 +21,10 @@ export function useAuth() {
   const isRegistering = ref(false);
   const showPassword = ref(false);
   const cooldownActive = ref(false);
-  const user = ref<any>(null);
+  
+  // Centralización de estado: El usuario ahora es una propiedad computada que 
+  // lee instantáneamente la sesión validada globalmente desde Pinia.
+  const user = computed(() => authStore.user);
 
   // Errores IHC individuales adaptados a los atributos físicos
   const errorNombre = ref('');
@@ -35,7 +42,6 @@ export function useAuth() {
         localStorage.removeItem(COOLDOWN_KEY);
       }, storedCooldown - Date.now());
     }
-    user.value = await authRepository.getCurrentUser();
   });
 
   const passwordRequirements = computed(() => [
@@ -143,10 +149,28 @@ export function useAuth() {
         password.value = '';
       } else {
         const loggedUser = await authRepository.signIn(email.value.trim(), password.value);
-        user.value = loggedUser;
         globalError.value = '';
-        // Redirige con recarga completa para que el guard lea la sesión de Supabase sin depender de inject()
-        window.location.assign('/');
+
+        // Sincronización estricta con Pinia ANTES de invocar el enrutador
+        authStore.user = loggedUser;
+        authStore.isAuthenticated = true;
+
+        // Redirigir a la pantalla correcta según el rol del usuario
+        let redirectPath = '/';
+        // Normalizamos el rol a minúsculas y sin espacios extra para compararlo de forma segura
+        const rol = String(loggedUser.rol || '').toLowerCase().trim();
+        
+        if (rol === 'administrador' || rol === 'admin') {
+          redirectPath = '/admin/buses'; // Pantalla inicial del Admin
+        } else if (rol === 'oficinista') {
+          redirectPath = '/venta';       // Pantalla inicial del Oficinista
+        } else if (rol === 'chofer') {
+          redirectPath = '/abordaje';    // Pantalla inicial del Chofer
+        } else {
+          redirectPath = '/buscar';      // Pantalla inicial del Cliente / Usuario Final
+        }
+        
+        router.push(redirectPath);
       }
     } catch (err: any) {
       const msg = err.message.toLowerCase();

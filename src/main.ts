@@ -4,7 +4,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import Login from './Presentation/Views/Login.vue'
-import Dashboard from './Presentation/Views/Dashboard.vue'
 import Usuarios from './Presentation/Views/Usuarios.vue'
 import BusesAdmin from './Presentation/Views/admin/BusesAdmin.vue'
 import FrecuenciasAdmin from './Presentation/Views/admin/FrecuenciasAdmin.vue'
@@ -17,18 +16,19 @@ import ValidarQR from './Presentation/Views/chofer/ValidarQR.vue'
 import Reportes from './Presentation/Views/reportes/Reportes.vue'
 import { useAuthStore } from './Presentation/Store/authStore'
 
-const ADMIN = ['Administrador', 'Admin']
-const OFICINISTA = ['Oficinista']
-const CHOFER = ['Chofer']
-const CLIENTE = ['Cliente']
+const ADMIN = ['administrador', 'admin']
+const OFICINISTA = ['oficinista']
+const CHOFER = ['chofer']
+// Mantenemos 'usuario final' por compatibilidad con cuentas antiguas creadas previamente
+const CLIENTE = ['cliente', 'usuario final']
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', name: 'Login', component: Login, meta: { public: true } },
 
-    // Dashboard es polimórfico, sirve para todos los roles autenticados
-    { path: '/', name: 'Dashboard', component: Dashboard },
+    // Restaurar la ruta raíz para no romper los <router-link> de los botones de navegación
+    { path: '/', name: 'Dashboard', redirect: '/login' },
 
     // Administración
     { path: '/admin/usuarios',    name: 'Usuarios',         component: Usuarios,        meta: { roles: ADMIN } },
@@ -37,12 +37,12 @@ const router = createRouter({
     { path: '/admin/rutas',       name: 'RutasAdmin',       component: RutasAdmin,      meta: { roles: ADMIN } },
     { path: '/admin/hoja-ruta',   name: 'HojaRutaAdmin',    component: HojaRutaAdmin,   meta: { roles: [...ADMIN, ...OFICINISTA] } },
 
-    // Oficinista
-    { path: '/venta',             name: 'VentaBoletos',     component: VentaBoletos,    meta: { roles: [...ADMIN, ...OFICINISTA] } },
+    // Ventas (Oficinista y Chofer según requerimientos)
+    { path: '/venta',             name: 'VentaBoletos',     component: VentaBoletos,    meta: { roles: [...ADMIN, ...OFICINISTA, ...CHOFER] } },
 
-    // Cliente
-    { path: '/buscar',            name: 'BuscarRutas',      component: BuscarRutas,     meta: { roles: [...CLIENTE, ...ADMIN, ...OFICINISTA] } },
-    { path: '/mis-boletos',       name: 'MisBoletos',       component: MisBoletos,      meta: { roles: [...CLIENTE, ...ADMIN] } },
+    // Cliente (Flujo estrictamente aislado para evitar cruces con la interfaz de empleados)
+    { path: '/buscar',            name: 'BuscarRutas',      component: BuscarRutas,     meta: { roles: CLIENTE } },
+    { path: '/mis-boletos',       name: 'MisBoletos',       component: MisBoletos,      meta: { roles: CLIENTE } },
 
     // Chofer
     { path: '/abordaje',          name: 'ValidarQR',        component: ValidarQR,       meta: { roles: [...CHOFER, ...ADMIN] } },
@@ -65,30 +65,34 @@ router.beforeEach(async (to) => {
     await authStore.initializeAuth()
   }
 
-  if (to.path === '/login' && authStore.isAuthenticated) {
-    return { path: '/' }
+  // Si está autenticado y trata de ir al login O a la raíz "/", 
+  // lo enviamos automáticamente a su dashboard específico
+  if ((to.path === '/login' || to.path === '/') && authStore.isAuthenticated) {
+    const u: any = authStore.user
+    const r = (u?.rol || u?.user_metadata?.rol || 'cliente').toLowerCase().trim()
+    if (ADMIN.includes(r)) return { path: '/admin/buses' }
+    if (OFICINISTA.includes(r)) return { path: '/venta' }
+    if (CHOFER.includes(r)) return { path: '/abordaje' }
+    return { path: '/buscar' }
   }
   if (!to.meta.public && !authStore.isAuthenticated) {
     return { path: '/login' }
   }
 
-  const allowedRoles: string[] | undefined = (to.meta as any).roles
+  const allowedRoles: string[] | undefined = (to.meta as any).roles?.map((r: string) => r.toLowerCase().trim())
   if (!allowedRoles || allowedRoles.length === 0) return true
 
   const u: any = authStore.user
-  const userRole =
-    u?.rol || u?.role ||
-    u?.user_metadata?.rol || u?.user_metadata?.role ||
-    null
+  const userRole = (u?.rol || u?.user_metadata?.rol || '').toLowerCase().trim()
 
-  // Si no hay rol disponible, permitir acceso al Dashboard pero bloquear el resto
-  if (!userRole) {
-    if (to.path === '/') return true
-    return { path: '/' }
-  }
-
-  if (allowedRoles.includes(userRole)) return true
+  // Si el usuario tiene el rol permitido, pasa. Si no, lo devolvemos a la raíz, 
+  // lo cual activará la regla de arriba y lo auto-redigirá a su lugar seguro.
+  if (userRole && allowedRoles.includes(userRole)) return true
   return { path: '/' }
 })
 
-app.mount('#app')
+// Esperamos a que el router resuelva la sesión de Supabase (las llamadas async)
+// ANTES de dibujar la aplicación de Vue. Esto elimina el parpadeo y la carga vacía.
+router.isReady().then(() => {
+  app.mount('#app')
+})

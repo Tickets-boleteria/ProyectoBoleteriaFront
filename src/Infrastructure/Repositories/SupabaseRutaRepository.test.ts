@@ -70,7 +70,7 @@ describe('SupabaseRutaRepository', () => {
     expect(resultado.busId).toBe(10);
     expect(resultado.fecha).toBe('2026-05-25');
     expect(resultado.estado).toBe('Programada');
-    expect(supabase.from).toHaveBeenCalledWith('rutas_diarias');
+    expect(supabase.from).toHaveBeenCalledWith('RutasDiarias');
   });
 
   /**
@@ -136,7 +136,7 @@ describe('SupabaseRutaRepository', () => {
     expect(resultado).toBeDefined();
     expect(resultado?.id).toBe(100);
     expect(resultado?.frecuenciaId).toBe(1);
-    expect(supabase.from).toHaveBeenCalledWith('rutas_diarias');
+    expect(supabase.from).toHaveBeenCalledWith('RutasDiarias');
   });
 
   /**
@@ -255,7 +255,7 @@ describe('SupabaseRutaRepository', () => {
 
     await repository.actualizarEstado(100, 'En curso');
 
-    expect(supabase.from).toHaveBeenCalledWith('rutas_diarias');
+    expect(supabase.from).toHaveBeenCalledWith('RutasDiarias');
   });
 
   /**
