@@ -1,5 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { SupabaseAuthRepository } from '../../Infrastructure/Repositories/SupabaseAuthRepository'
+
+const authRepository = new SupabaseAuthRepository()
 import type { User } from '@supabase/supabase-js'
 import { loginUseCase } from '../../Application/UseCases/Login'
 import { supabase } from '../../Infrastructure/Api/supabaseClient'
@@ -82,7 +85,7 @@ export const useAuthStore = defineStore('auth', () => {
   const logout = async () => {
     loading.value = true
     try {
-      await loginUseCase.logout()
+      await authRepository.signOut()
       user.value = null
     } catch (err: any) {
       error.value = err.message

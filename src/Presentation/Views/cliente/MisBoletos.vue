@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { supabase } from '../../../Infrastructure/Api/supabaseClient'
+import { useAuthStore } from '../../Store/authStore'
 import QRCode from 'qrcode'
 
 interface Boleto {
@@ -16,12 +18,117 @@ interface Boleto {
   estado: 'PENDIENTE' | 'CONFIRMADO' | 'USADO' | 'CANCELADO'
 }
 
-// MOCK – reemplaza con TicketUseCases
-const boletos = ref<Boleto[]>([
-  { id: '1', codigo: 'BOL-A1B2C3', origen: 'Latacunga', destino: 'Quito', fecha: '2026-05-23', hora: '08:30', asiento: '12B', cooperativa: 'Trans Latinos', busPlaca: 'TBA-0234', precio: 2.50, estado: 'CONFIRMADO' },
-  { id: '2', codigo: 'BOL-X9Y8Z7', origen: 'Latacunga', destino: 'Cuenca', fecha: '2026-06-02', hora: '07:30', asiento: '08A', cooperativa: 'Trans Latinos', busPlaca: 'TBA-0099', precio: 12.00, estado: 'PENDIENTE' },
-  { id: '3', codigo: 'BOL-P5Q6R7', origen: 'Quito', destino: 'Latacunga', fecha: '2026-04-12', hora: '17:00', asiento: '04C', cooperativa: 'Trans Latinos', busPlaca: 'TBA-0234', precio: 2.50, estado: 'USADO' },
-])
+const authStore = useAuthStore()
+const boletos = ref<Boleto[]>([])
+const loading = ref(false)
+const error = ref('')
+
+const getFieldValue = (obj: any, fieldName: string) => {
+  if (!obj) return undefined
+  const key = Object.keys(obj).find(k => k.toLowerCase() === fieldName.toLowerCase())
+  return key ? obj[key] : undefined
+}
+
+const isValidText = (value: any) => typeof value === 'string' && value.trim().length > 0
+
+const mapEstado = (estado: any): Boleto['estado'] => {
+  const e = String(estado ?? '').toUpperCase()
+  if (e.includes('CONF')) return 'CONFIRMADO'
+  if (e.includes('USAD')) return 'USADO'
+  if (e.includes('CANC')) return 'CANCELADO'
+  return 'PENDIENTE'
+}
+
+const cargarBoletos = async () => {
+  const cedulaUsuario = authStore.user?.cedula?.trim()
+  if (!cedulaUsuario) {
+    error.value = 'No se encontró la cédula del usuario autenticado.'
+    boletos.value = []
+    return
+  }
+
+  loading.value = true
+  error.value = ''
+
+  try {
+    const { data, error: queryError } = await supabase
+      .from('Boletos')
+      .select(`
+        Id,
+        CodigoQr,
+        CodigoBarras,
+        Estado,
+        PrecioFinal,
+        CreatedAt,
+        Asientos!inner(
+          Id,
+          NumeroAsiento,
+          Buses!inner(
+            Placa
+          )
+        ),
+        Ventas!inner(
+          Id,
+          UsuarioVendedorId,
+          FechaVenta,
+          Estado,
+          Rutas!inner(
+            Id,
+            Fecha,
+            Frecuencias!inner(
+              Id,
+              CiudadOrigen,
+              CiudadDestino,
+              HoraSalida,
+              Cooperativas!inner(Id, Nombre)
+            )
+          )
+        )
+      `)
+      .eq('CedulaPasajero', cedulaUsuario)
+      .order('CreatedAt', { ascending: false })
+
+    if (queryError) throw new Error(queryError.message)
+
+    boletos.value = (data || []).map((row: any) => {
+      const ventas = row.Ventas ?? row.ventas ?? {}
+      const rutas = ventas.Rutas ?? ventas.rutas ?? {}
+      const frecuencias = rutas.Frecuencias ?? rutas.frecuencias ?? {}
+      const cooperativas = frecuencias.Cooperativas ?? frecuencias.cooperativas ?? {}
+      const asientos = row.Asientos ?? row.asientos ?? {}
+      const buses = asientos.Buses ?? asientos.buses ?? {}
+
+      return {
+        id: String(getFieldValue(row, 'Id') ?? ''),
+        codigo: String(getFieldValue(row, 'CodigoQr') ?? getFieldValue(row, 'CodigoBarras') ?? ''),
+        origen: String(getFieldValue(frecuencias, 'CiudadOrigen') ?? ''),
+        destino: String(getFieldValue(frecuencias, 'CiudadDestino') ?? ''),
+        fecha: String(getFieldValue(rutas, 'Fecha') ?? getFieldValue(ventas, 'FechaVenta') ?? '').slice(0, 10),
+        hora: String(getFieldValue(frecuencias, 'HoraSalida') ?? '').slice(0, 5),
+        asiento: String(getFieldValue(asientos, 'NumeroAsiento') ?? ''),
+        cooperativa: String(getFieldValue(cooperativas, 'Nombre') ?? ''),
+        busPlaca: String(getFieldValue(buses, 'Placa') ?? ''),
+        precio: Number(getFieldValue(row, 'PrecioFinal') ?? 0),
+        estado: mapEstado(getFieldValue(row, 'Estado') ?? getFieldValue(ventas, 'Estado')),
+      }
+    }).filter((boleto) =>
+      isValidText(boleto.codigo) &&
+      isValidText(boleto.origen) &&
+      isValidText(boleto.destino) &&
+      isValidText(boleto.fecha) &&
+      isValidText(boleto.hora) &&
+      isValidText(boleto.asiento) &&
+      isValidText(boleto.cooperativa) &&
+      isValidText(boleto.busPlaca) &&
+      boleto.precio > 0
+    )
+  } catch (err: any) {
+    error.value = err.message || 'No fue posible cargar tus boletos.'
+    boletos.value = []
+  } finally {
+    loading.value = false
+  }
+}
 
 const filtroEstado = ref<'Todos' | Boleto['estado']>('Todos')
 const boletoActivo = ref<Boleto | null>(null)
@@ -64,7 +171,9 @@ const barsForActive = computed(() =>
 )
 const barcodeWidth = computed(() => barsForActive.value.reduce((sum, b) => sum + b.width, 0))
 
-onMounted(() => { /* cargar boletos reales */ })
+onMounted(() => {
+  void cargarBoletos()
+})
 </script>
 
 <template>
@@ -127,6 +236,14 @@ onMounted(() => { /* cargar boletos reales */ })
         <select v-model="filtroEstado" class="rounded-xl border border-slate-200 bg-white px-4 py-2">
           <option>Todos</option><option>PENDIENTE</option><option>CONFIRMADO</option><option>USADO</option><option>CANCELADO</option>
         </select>
+      </div>
+
+      <div v-if="error" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+        {{ error }}
+      </div>
+
+      <div v-if="loading" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+        Cargando tus boletos desde la base de datos...
       </div>
 
       <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

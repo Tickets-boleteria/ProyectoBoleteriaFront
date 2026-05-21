@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import { useReportes } from '../../Composables/useReportes'
 
-const { auditoria, loading, error, cargarBoletos } = useReportes()
+const { boletos, auditoria, loading, error, cargarBoletos } = useReportes()
 
 type Categoria = 'ninguno' | 'nino' | 'discapacidad' | 'tercera_edad'
 
@@ -29,44 +29,25 @@ interface AuditoriaEntry {
   detalle: string
 }
 
-const boletosMock: BoletoReporte[] = [
-  { id: 'B-001', fecha: '2026-05-18', ruta: 'Quito → Guayaquil',  cooperativa: 'Coop. Flota Pelileo',     precioBase: 12, precioFinal: 12,   descuento: 0,   categoria: 'ninguno' },
-  { id: 'B-002', fecha: '2026-05-18', ruta: 'Quito → Cuenca',     cooperativa: 'Coop. Patria',            precioBase: 14, precioFinal: 7,    descuento: 7,   categoria: 'nino' },
-  { id: 'B-003', fecha: '2026-05-18', ruta: 'Ambato → Guayaquil', cooperativa: 'Coop. Flota Pelileo',     precioBase: 11, precioFinal: 5.5,  descuento: 5.5, categoria: 'discapacidad' },
-  { id: 'B-004', fecha: '2026-05-19', ruta: 'Quito → Guayaquil',  cooperativa: 'Coop. Panamericana',      precioBase: 12, precioFinal: 9,    descuento: 3,   categoria: 'tercera_edad' },
-  { id: 'B-005', fecha: '2026-05-19', ruta: 'Quito → Cuenca',     cooperativa: 'Coop. Patria',            precioBase: 14, precioFinal: 14,   descuento: 0,   categoria: 'ninguno' },
-  { id: 'B-006', fecha: '2026-05-19', ruta: 'Ambato → Quito',     cooperativa: 'Coop. Flota Pelileo',     precioBase: 4,  precioFinal: 4,    descuento: 0,   categoria: 'ninguno' },
-  { id: 'B-007', fecha: '2026-05-19', ruta: 'Quito → Guayaquil',  cooperativa: 'Coop. Panamericana',      precioBase: 12, precioFinal: 6,    descuento: 6,   categoria: 'nino' },
-  { id: 'B-008', fecha: '2026-05-20', ruta: 'Quito → Guayaquil',  cooperativa: 'Coop. Flota Pelileo',     precioBase: 12, precioFinal: 12,   descuento: 0,   categoria: 'ninguno' },
-  { id: 'B-009', fecha: '2026-05-20', ruta: 'Quito → Cuenca',     cooperativa: 'Coop. Patria',            precioBase: 14, precioFinal: 9,    descuento: 5,   categoria: 'tercera_edad' },
-  { id: 'B-010', fecha: '2026-05-20', ruta: 'Ambato → Guayaquil', cooperativa: 'Coop. Flota Pelileo',     precioBase: 11, precioFinal: 11,   descuento: 0,   categoria: 'ninguno' },
-  { id: 'B-011', fecha: '2026-05-20', ruta: 'Quito → Guayaquil',  cooperativa: 'Coop. Panamericana',      precioBase: 12, precioFinal: 6,    descuento: 6,   categoria: 'discapacidad' },
-  { id: 'B-012', fecha: '2026-05-20', ruta: 'Quito → Cuenca',     cooperativa: 'Coop. Patria',            precioBase: 14, precioFinal: 7,    descuento: 7,   categoria: 'nino' },
-  { id: 'B-013', fecha: '2026-05-20', ruta: 'Ambato → Quito',     cooperativa: 'Coop. Flota Pelileo',     precioBase: 4,  precioFinal: 4,    descuento: 0,   categoria: 'ninguno' },
-  { id: 'B-014', fecha: '2026-05-20', ruta: 'Quito → Guayaquil',  cooperativa: 'Coop. Panamericana',      precioBase: 12, precioFinal: 12,   descuento: 0,   categoria: 'ninguno' },
-  { id: 'B-015', fecha: '2026-05-20', ruta: 'Quito → Cuenca',     cooperativa: 'Coop. Patria',            precioBase: 14, precioFinal: 9,    descuento: 5,   categoria: 'tercera_edad' },
-]
-
 /* ──────────────────────────────────────────────────────────────────────────
  *  FILTROS
  * ────────────────────────────────────────────────────────────────────────── */
 const filtros = ref({
-  desde: '2026-05-18',
-  hasta: '2026-05-20',
+  desde: '',
+  hasta: '',
   cooperativa: '',
   ruta: '',
 })
 
 // Cuando los filtros cambien, recargar los datos de boletos
 watch(filtros, (nuevosFiltros) => {
-  // NOTA: Descomentar cuando el repositorio de boletos esté listo
-  // cargarBoletos(nuevosFiltros)
+  cargarBoletos(nuevosFiltros)
 }, { deep: true })
 
-const cooperativas = computed(() => Array.from(new Set(boletosMock.map(b => b.cooperativa))))
-const rutas         = computed(() => Array.from(new Set(boletosMock.map(b => b.ruta))))
+const cooperativas = computed(() => Array.from(new Set(boletos.value.map(b => b.cooperativa))))
+const rutas         = computed(() => Array.from(new Set(boletos.value.map(b => b.ruta))))
 
-const boletosFiltrados = computed(() => boletosMock.filter(b => {
+const boletosFiltrados = computed(() => boletos.value.filter((b: BoletoReporte) => {
   if (filtros.value.desde && b.fecha < filtros.value.desde) return false
   if (filtros.value.hasta && b.fecha > filtros.value.hasta) return false
   if (filtros.value.cooperativa && b.cooperativa !== filtros.value.cooperativa) return false
@@ -193,8 +174,12 @@ const exportarPDF = () => {
 }
 
 const limpiarFiltros = () => {
-  filtros.value = { desde: '2026-05-18', hasta: '2026-05-20', cooperativa: '', ruta: '' }
+  filtros.value = { desde: '', hasta: '', cooperativa: '', ruta: '' }
 }
+
+onMounted(() => {
+  cargarBoletos(filtros.value)
+})
 </script>
 
 <template>

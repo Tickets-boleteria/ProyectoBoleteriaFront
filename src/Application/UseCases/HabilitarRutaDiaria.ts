@@ -10,7 +10,7 @@ export interface HabilitarRutaInput {
   fecha: string;
 }
 
-export class HabilitarRutaDiaria {
+export class  HabilitarRutaDiaria {
   constructor(
     private rutaRepo: IRutaRepository,
     private busRepo: IBusRepository,

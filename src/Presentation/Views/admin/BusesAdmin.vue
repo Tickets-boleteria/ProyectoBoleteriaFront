@@ -25,12 +25,12 @@ const { buses, nuevoBus, loading, error, registrarBus } = useBuses();
 
         <div>
           <label class="text-xs font-bold text-slate-700">Número de Unidad</label>
-          <input type="text" v-model="nuevoBus.numero" placeholder="Ej: 55" required
+             <input type="text" v-model="nuevoBus.numero" required
                  class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
         </div>
         <div>
           <label class="text-xs font-bold text-slate-700">Placa</label>
-          <input type="text" v-model="nuevoBus.placa" placeholder="Ej: PCH-1234" required
+             <input type="text" v-model="nuevoBus.placa" required
                  class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
         </div>
         <div>

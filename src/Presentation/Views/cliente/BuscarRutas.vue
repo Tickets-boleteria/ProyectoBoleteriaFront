@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { supabase } from '../../../Infrastructure/Api/supabaseClient'
+import { useAuthStore } from '../../Store/authStore'
 
 interface RutaDisponible {
   id: number
+  frecuenciaId: number
+  busId: number
   origen: string
   destino: string
   hora: string
@@ -10,41 +14,273 @@ interface RutaDisponible {
   cooperativa: string
   precioBase: number
   asientosLibres: number
+  totalAsientos: number
   busPlaca: string
-  duracionMin: number
 }
 
-const rutasMock: RutaDisponible[] = [
-  { id: 1, origen: 'Latacunga', destino: 'Quito',     hora: '06:00', fecha: '2026-05-20', cooperativa: 'Trans Latinos',  precioBase: 2.50,  asientosLibres: 6,  busPlaca: 'TBA-0234', duracionMin: 90 },
-  { id: 2, origen: 'Latacunga', destino: 'Quito',     hora: '08:30', fecha: '2026-05-20', cooperativa: 'Trans Latinos',  precioBase: 2.50,  asientosLibres: 22, busPlaca: 'TBA-0099', duracionMin: 90 },
-  { id: 3, origen: 'Latacunga', destino: 'Cuenca',    hora: '07:30', fecha: '2026-05-20', cooperativa: 'Trans Latinos',  precioBase: 12.00, asientosLibres: 34, busPlaca: 'TBA-0099', duracionMin: 480 },
-  { id: 4, origen: 'Ambato',    destino: 'Guayaquil', hora: '21:00', fecha: '2026-05-20', cooperativa: 'Trans Latinos',  precioBase: 9.50,  asientosLibres: 16, busPlaca: 'TBC-1192', duracionMin: 360 },
-]
+type DbRow = Record<string, any>
+
+const getFieldValue = (obj: DbRow | null | undefined, fieldName: string) => {
+  if (!obj) return undefined
+  const key = Object.keys(obj).find(k => k.toLowerCase() === fieldName.toLowerCase())
+  return key ? obj[key] : undefined
+}
+
+const isValidText = (value: any) => typeof value === 'string' && value.trim().length > 0
+
+const rutas = ref<RutaDisponible[]>([])
+const loading = ref(false)
+const loadingAsientos = ref(false)
+const error = ref('')
 
 const filtros = reactive({
   origen: '', destino: '', fecha: new Date().toISOString().slice(0, 10),
 })
 
-const resultados = computed(() => rutasMock.filter(r =>
+const resultados = computed(() => rutas.value.filter(r =>
   (!filtros.origen  || r.origen.toLowerCase().includes(filtros.origen.toLowerCase())) &&
   (!filtros.destino || r.destino.toLowerCase().includes(filtros.destino.toLowerCase())) &&
   (!filtros.fecha   || r.fecha === filtros.fecha)
 ))
 
+const cargarPrecioBasePorBus = async (busIds: number[]) => {
+  const precios = new Map<number, number>()
+  if (!busIds.length) return precios
+
+  const { data, error: preciosError } = await supabase
+    .from('ConfiguracionesAsientos')
+    .select('BusId, PrecioBase')
+    .in('BusId', busIds)
+
+  if (preciosError) {
+    throw new Error(preciosError.message)
+  }
+
+  for (const fila of data || []) {
+    const busId = Number(getFieldValue(fila, 'BusId') ?? getFieldValue(fila, 'busid'))
+    const precio = Number(getFieldValue(fila, 'PrecioBase') ?? getFieldValue(fila, 'preciobase') ?? 0)
+    if (!precios.has(busId) || precio < (precios.get(busId) ?? precio)) {
+      precios.set(busId, precio)
+    }
+  }
+
+  return precios
+}
+
+const cargarAsientosLibresPorRuta = async (rutaIds: number[]) => {
+  const libres = new Map<number, number>()
+  if (!rutaIds.length) return libres
+
+  const { data: ventas, error: ventasError } = await supabase
+    .from('Ventas')
+    .select('Id, RutaId')
+    .in('RutaId', rutaIds)
+
+  if (ventasError) {
+    throw new Error(ventasError.message)
+  }
+
+  const ventasPorRuta = new Map<number, number[]>()
+  for (const venta of ventas || []) {
+    const rutaId = Number(getFieldValue(venta, 'RutaId') ?? getFieldValue(venta, 'rutaid'))
+    const ventaId = Number(getFieldValue(venta, 'Id') ?? getFieldValue(venta, 'id'))
+    const lista = ventasPorRuta.get(rutaId) ?? []
+    lista.push(ventaId)
+    ventasPorRuta.set(rutaId, lista)
+  }
+
+  const ventaIds = Array.from(ventasPorRuta.values()).flat()
+  if (!ventaIds.length) {
+    rutaIds.forEach(id => libres.set(id, 0))
+    return libres
+  }
+
+  const { data: boletos, error: boletosError } = await supabase
+    .from('Boletos')
+    .select('VentaId')
+    .in('VentaId', ventaIds)
+
+  if (boletosError) {
+    throw new Error(boletosError.message)
+  }
+
+  const boletosPorVenta = new Map<number, number>()
+  for (const boleto of boletos || []) {
+    const ventaId = Number(getFieldValue(boleto, 'VentaId') ?? getFieldValue(boleto, 'ventaid'))
+    boletosPorVenta.set(ventaId, (boletosPorVenta.get(ventaId) ?? 0) + 1)
+  }
+
+  for (const rutaId of rutaIds) {
+    const ventasDeLaRuta = ventasPorRuta.get(rutaId) ?? []
+    const vendidos = ventasDeLaRuta.reduce((total, ventaId) => total + (boletosPorVenta.get(ventaId) ?? 0), 0)
+    libres.set(rutaId, vendidos)
+  }
+
+  return libres
+}
+
+const cargarRutas = async () => {
+  loading.value = true
+  error.value = ''
+
+  try {
+    const { data: rutasData, error: rutasError } = await supabase
+      .from('Rutas')
+      .select('Id, FrecuenciaId, BusId, Fecha')
+      .eq('Fecha', filtros.fecha)
+      .order('Id', { ascending: true })
+
+    if (rutasError) {
+      throw new Error(rutasError.message)
+    }
+
+    const rutasBase = rutasData || []
+    const frecuenciaIds = [...new Set(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'FrecuenciaId') ?? getFieldValue(fila, 'frecuenciaid'))))].filter(Boolean)
+    const busIds = [...new Set(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'BusId') ?? getFieldValue(fila, 'busid'))))].filter(Boolean)
+
+    const [frecuenciasResp, busesResp, cooperativasResp, preciosBaseResp, libresResp] = await Promise.all([
+      frecuenciaIds.length
+        ? supabase.from('Frecuencias').select('Id, CiudadOrigen, CiudadDestino, HoraSalida, CooperativaId').in('Id', frecuenciaIds)
+        : Promise.resolve({ data: [], error: null } as any),
+      busIds.length
+        ? supabase.from('Buses').select('Id, Placa, TotalAsientos').in('Id', busIds)
+        : Promise.resolve({ data: [], error: null } as any),
+      Promise.resolve(null),
+      cargarPrecioBasePorBus(busIds),
+      cargarAsientosLibresPorRuta(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id')))).catch(err => { throw err })
+    ])
+
+    const frecuenciasData = frecuenciasResp.data || []
+    const busesData = busesResp.data || []
+    const coopIds = [...new Set(frecuenciasData.map((fila: DbRow) => Number(getFieldValue(fila, 'CooperativaId') ?? getFieldValue(fila, 'cooperativaid'))))].filter(Boolean)
+
+    const cooperativasQuery = coopIds.length
+      ? await supabase.from('Cooperativas').select('Id, Nombre').in('Id', coopIds)
+      : { data: [], error: null }
+
+    if ((frecuenciasResp as any).error) throw new Error((frecuenciasResp as any).error.message)
+    if ((busesResp as any).error) throw new Error((busesResp as any).error.message)
+    if ((cooperativasQuery as any).error) throw new Error((cooperativasQuery as any).error.message)
+
+    const frecuenciasPorId = new Map<number, DbRow>()
+    for (const fila of frecuenciasData) {
+      const id = Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id'))
+      frecuenciasPorId.set(id, fila)
+    }
+
+    const busesPorId = new Map<number, DbRow>()
+    for (const fila of busesData) {
+      const id = Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id'))
+      busesPorId.set(id, fila)
+    }
+
+    const cooperativasPorId = new Map<number, DbRow>()
+    for (const fila of (cooperativasQuery as any).data || []) {
+      const id = Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id'))
+      cooperativasPorId.set(id, fila)
+    }
+
+    rutas.value = rutasBase.map((fila: DbRow) => {
+      const id = Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id'))
+      const frecuenciaId = Number(getFieldValue(fila, 'FrecuenciaId') ?? getFieldValue(fila, 'frecuenciaid'))
+      const busId = Number(getFieldValue(fila, 'BusId') ?? getFieldValue(fila, 'busid'))
+      const frecuencia = frecuenciasPorId.get(frecuenciaId) || null
+      const bus = busesPorId.get(busId) || null
+      const cooperativaId = Number(getFieldValue(frecuencia, 'CooperativaId') ?? getFieldValue(frecuencia, 'cooperativaid') ?? 0)
+      const cooperativa = cooperativasPorId.get(cooperativaId) || null
+      const totalAsientos = Number(getFieldValue(bus, 'TotalAsientos') ?? getFieldValue(bus, 'totalasientos') ?? 0)
+      const vendidos = libresResp.get(id) ?? 0
+
+      return {
+        id,
+        frecuenciaId,
+        busId,
+        origen: String(getFieldValue(frecuencia, 'CiudadOrigen') ?? ''),
+        destino: String(getFieldValue(frecuencia, 'CiudadDestino') ?? ''),
+        hora: String(getFieldValue(frecuencia, 'HoraSalida') ?? '').slice(0, 5),
+        fecha: String(getFieldValue(fila, 'Fecha') ?? ''),
+        cooperativa: String(getFieldValue(cooperativa, 'Nombre') ?? ''),
+        precioBase: preciosBaseResp.get(busId) ?? 0,
+        asientosLibres: Math.max(totalAsientos - vendidos, 0),
+        totalAsientos,
+        busPlaca: String(getFieldValue(bus, 'Placa') ?? ''),
+      }
+    }).filter((ruta) =>
+      ruta.id > 0 &&
+      ruta.frecuenciaId > 0 &&
+      ruta.busId > 0 &&
+      isValidText(ruta.origen) &&
+      isValidText(ruta.destino) &&
+      isValidText(ruta.hora) &&
+      isValidText(ruta.fecha) &&
+      isValidText(ruta.cooperativa) &&
+      isValidText(ruta.busPlaca) &&
+      ruta.precioBase > 0 &&
+      ruta.totalAsientos > 0
+    )
+  } catch (err: any) {
+    error.value = err?.message || 'No fue posible cargar las rutas.'
+    rutas.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
 // Paso 2: selección
 const rutaSeleccionada = ref<RutaDisponible | null>(null)
 const asientosSeleccionados = ref<string[]>([])
+const asientosOcupados = ref<string[]>([])
 
-// Map ficticio de asientos: 11 filas x 4 cols, algunos ocupados
+const cargarAsientosOcupados = async (rutaId: number) => {
+  loadingAsientos.value = true
+  try {
+    const { data: ventas, error: ventasError } = await supabase
+      .from('Ventas')
+      .select('Id')
+      .eq('RutaId', rutaId)
+
+    if (ventasError) throw new Error(ventasError.message)
+
+    const ventaIds = (ventas || []).map((fila: DbRow) => Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id')))
+    if (!ventaIds.length) {
+      asientosOcupados.value = []
+      return
+    }
+
+    const { data: boletos, error: boletosError } = await supabase
+      .from('Boletos')
+      .select('AsientoId')
+      .in('VentaId', ventaIds)
+
+    if (boletosError) throw new Error(boletosError.message)
+
+    const asientoIds = [...new Set((boletos || []).map((fila: DbRow) => Number(getFieldValue(fila, 'AsientoId') ?? getFieldValue(fila, 'asientoid'))))].filter(Boolean)
+    if (!asientoIds.length) {
+      asientosOcupados.value = []
+      return
+    }
+
+    const { data: asientos, error: asientosError } = await supabase
+      .from('Asientos')
+      .select('Id, NumeroAsiento')
+      .in('Id', asientoIds)
+
+    if (asientosError) throw new Error(asientosError.message)
+
+    asientosOcupados.value = [...new Set((asientos || []).map((fila: DbRow) => String(getFieldValue(fila, 'NumeroAsiento') ?? getFieldValue(fila, 'numeroasiento') ?? '')))].filter(Boolean)
+  } finally {
+    loadingAsientos.value = false
+  }
+}
+
+// Map real de asientos según capacidad del bus y boletos emitidos
 const asientosLayout = computed(() => {
   if (!rutaSeleccionada.value) return []
-  const total = 44
-  const ocupados = new Set<number>(
-    Array.from({ length: total - rutaSeleccionada.value.asientosLibres }, (_, i) => i + 1)
-  )
+  const total = Math.max(rutaSeleccionada.value.totalAsientos, 0)
+  const ocupados = new Set(asientosOcupados.value.map(n => n.toString().padStart(2, '0')))
   return Array.from({ length: total }, (_, i) => ({
     numero: (i + 1).toString().padStart(2, '0'),
-    ocupado: ocupados.has(i + 1),
+    ocupado: ocupados.has((i + 1).toString().padStart(2, '0')),
   }))
 })
 
@@ -72,7 +308,7 @@ function onCapturaUpload(e: Event) {
 
 // Paso 4: confirmación
 const compraConfirmada = ref<null | {
-  codigo: string
+  codigo: string | null
   ruta: RutaDisponible
   asientos: string[]
   total: number
@@ -80,19 +316,95 @@ const compraConfirmada = ref<null | {
   referencia: string
 }>(null)
 
-function confirmarCompra() {
+const authStore = useAuthStore()
+
+async function confirmarCompra() {
   if (!rutaSeleccionada.value || asientosSeleccionados.value.length === 0) return
   if (!captura.value) {
     alert('Por favor adjunta la captura del pago para continuar.')
     return
   }
-  compraConfirmada.value = {
-    codigo: 'BOL-' + Math.random().toString(36).slice(2, 8).toUpperCase(),
-    ruta: rutaSeleccionada.value,
-    asientos: [...asientosSeleccionados.value],
-    total: rutaSeleccionada.value.precioBase * asientosSeleccionados.value.length,
-    captura: captura.value,
-    referencia: referenciaPago.value,
+
+  try {
+    // 1) Crear registro de Venta (estado PENDIENTE)
+    const ventaPayload: any = {
+      RutaId: rutaSeleccionada.value.id,
+      FechaVenta: new Date().toISOString(),
+      Estado: 'PENDIENTE',
+    }
+
+    const { data: ventaData, error: ventaError } = await supabase
+      .from('Ventas')
+      .insert([ventaPayload])
+      .select()
+      .single()
+
+    if (ventaError) throw new Error(ventaError.message)
+    const ventaId = Number(getFieldValue(ventaData, 'Id') ?? getFieldValue(ventaData, 'id'))
+    if (!ventaId) throw new Error('No se pudo crear la venta.')
+
+    // 2) Obtener Asientos del bus para mapear número -> Id
+    const { data: asientosRows, error: asientosError } = await supabase
+      .from('Asientos')
+      .select('Id, NumeroAsiento, BusId')
+      .eq('BusId', rutaSeleccionada.value.busId)
+
+    if (asientosError) throw new Error(asientosError.message)
+
+    const filas = asientosRows || []
+    const asientoMap = new Map<string, number>()
+    for (const f of filas) {
+      const num = String(getFieldValue(f, 'NumeroAsiento') ?? getFieldValue(f, 'numeroasiento') ?? '')
+      const id = Number(getFieldValue(f, 'Id') ?? getFieldValue(f, 'id') ?? 0)
+      if (num && id) asientoMap.set(num.toString().padStart(2, '0'), id)
+      if (num && id) asientoMap.set(String(Number(num)), id)
+    }
+
+    // 3) Preparar inserts para Boletos
+    const cedulaPasajero = String(authStore.user?.cedula ?? '')
+    const precio = rutaSeleccionada.value.precioBase
+    const boletosInsert: any[] = []
+    for (const asientoNumero of asientosSeleccionados.value) {
+      const key = asientoNumero.toString().padStart(2, '0')
+      const asientoId = asientoMap.get(key) ?? asientoMap.get(String(Number(asientoNumero)))
+      if (!asientoId) throw new Error(`No se encontró el asiento ${asientoNumero} en la configuración del bus.`)
+      boletosInsert.push({
+        VentaId: ventaId,
+        AsientoId: asientoId,
+        PrecioFinal: precio,
+        CedulaPasajero: cedulaPasajero,
+        Estado: 'PENDIENTE',
+      })
+    }
+
+    if (boletosInsert.length === 0) throw new Error('No hay boletos para insertar.')
+
+    const { data: boletosData, error: boletosError } = await supabase
+      .from('Boletos')
+      .insert(boletosInsert)
+      .select()
+
+    if (boletosError) throw new Error(boletosError.message)
+
+    // 4) Actualizar UI y estado local
+    compraConfirmada.value = {
+      codigo: null,
+      ruta: rutaSeleccionada.value,
+      asientos: [...asientosSeleccionados.value],
+      total: precio * asientosSeleccionados.value.length,
+      captura: captura.value,
+      referencia: referenciaPago.value,
+    }
+
+    // Limpiar formulario de pago
+    mostrarPago.value = false
+    asientosSeleccionados.value = []
+    asientosOcupados.value = []
+    captura.value = null
+    referenciaPago.value = ''
+
+  } catch (err: any) {
+    error.value = err.message || 'No fue posible registrar la compra.'
   }
 }
 
@@ -109,6 +421,34 @@ const formatoDuracion = (min: number) => {
   const h = Math.floor(min / 60); const m = min % 60
   return h ? `${h}h ${m}m` : `${m}m`
 }
+
+const seleccionarRuta = async (ruta: RutaDisponible) => {
+  rutaSeleccionada.value = ruta
+  asientosSeleccionados.value = []
+  asientosOcupados.value = []
+  await cargarAsientosOcupados(ruta.id)
+}
+
+const volverABuscar = () => {
+  compraConfirmada.value = null
+  rutaSeleccionada.value = null
+  asientosSeleccionados.value = []
+  asientosOcupados.value = []
+  captura.value = null
+  referenciaPago.value = ''
+  mostrarPago.value = false
+}
+
+onMounted(() => {
+  void cargarRutas()
+})
+
+watch(() => filtros.fecha, () => {
+  rutaSeleccionada.value = null
+  asientosSeleccionados.value = []
+  asientosOcupados.value = []
+  void cargarRutas()
+})
 </script>
 
 <template>
@@ -123,7 +463,7 @@ const formatoDuracion = (min: number) => {
         </div>
       </div>
       <article class="rounded-2xl bg-white p-6 shadow-xl border border-slate-200">
-        <p class="font-bold text-slate-700">Código: <span class="font-mono text-blue-700">{{ compraConfirmada.codigo }}</span></p>
+        <p class="font-bold text-slate-700">Código: <span class="font-mono text-blue-700">Pendiente de registro</span></p>
         <p class="text-sm text-slate-500 mt-1">El oficinista validará el comprobante y tu boleto con QR aparecerá en
           <router-link to="/mis-boletos" class="font-bold text-blue-700 underline">Mis boletos</router-link>.</p>
         <dl class="grid grid-cols-2 gap-3 text-sm mt-4">
@@ -144,16 +484,24 @@ const formatoDuracion = (min: number) => {
         <p class="text-slate-500 text-sm">Encuentra tu viaje y reserva tus asientos en línea.</p>
       </div>
 
+      <div v-if="error" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+        {{ error }}
+      </div>
+
+      <div v-if="loading" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+        Cargando rutas reales desde la base de datos...
+      </div>
+
       <!-- ===== Filtros ===== -->
       <section v-if="!rutaSeleccionada" class="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur">
         <div class="grid gap-4 sm:grid-cols-3">
           <div class="rounded-2xl bg-slate-50 p-3">
             <label class="text-xs font-bold text-slate-700">Origen</label>
-            <input v-model="filtros.origen" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1" placeholder="Latacunga"/>
+            <input v-model="filtros.origen" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
           </div>
           <div class="rounded-2xl bg-slate-50 p-3">
             <label class="text-xs font-bold text-slate-700">Destino</label>
-            <input v-model="filtros.destino" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1" placeholder="Quito"/>
+            <input v-model="filtros.destino" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
           </div>
           <div class="rounded-2xl bg-slate-50 p-3">
             <label class="text-xs font-bold text-slate-700">Fecha</label>
@@ -170,7 +518,7 @@ const formatoDuracion = (min: number) => {
             <div class="flex-1 min-w-[200px]">
               <p class="text-xs font-bold uppercase tracking-wider text-slate-400">{{ r.cooperativa }}</p>
               <p class="text-xl font-black text-slate-900">{{ r.origen }} → {{ r.destino }}</p>
-              <p class="text-sm text-slate-500">{{ r.fecha }} · Sale {{ r.hora }} · Duración aprox. {{ formatoDuracion(r.duracionMin) }}</p>
+              <p class="text-sm text-slate-500">{{ r.fecha }} · Sale {{ r.hora }} · Bus {{ r.busPlaca }}</p>
             </div>
             <div class="text-right">
               <p class="text-2xl font-black text-blue-700">${{ r.precioBase.toFixed(2) }}</p>
@@ -178,7 +526,7 @@ const formatoDuracion = (min: number) => {
                 {{ r.asientosLibres > 0 ? r.asientosLibres + ' asientos libres' : 'Lleno' }}
               </p>
             </div>
-            <button :disabled="r.asientosLibres === 0" @click="rutaSeleccionada = r"
+            <button :disabled="r.asientosLibres === 0 || loadingAsientos" @click="seleccionarRuta(r)"
               class="rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-xl shadow-blue-100 hover:bg-blue-700 disabled:opacity-50">
               Elegir asientos
             </button>
@@ -196,12 +544,13 @@ const formatoDuracion = (min: number) => {
             <p class="text-xs font-bold uppercase text-blue-600 tracking-wider">Ruta elegida</p>
             <p class="font-black text-slate-900">{{ rutaSeleccionada.origen }} → {{ rutaSeleccionada.destino }} · {{ rutaSeleccionada.fecha }} · {{ rutaSeleccionada.hora }}</p>
           </div>
-          <button @click="rutaSeleccionada = null; asientosSeleccionados = []" class="text-sm font-bold text-blue-700 underline underline-offset-4">Cambiar ruta</button>
+          <button @click="rutaSeleccionada = null; asientosSeleccionados = []; asientosOcupados = []" class="text-sm font-bold text-blue-700 underline underline-offset-4">Cambiar ruta</button>
         </div>
 
         <div class="grid gap-6 lg:grid-cols-[1fr_360px]">
           <div class="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur">
             <h3 class="text-lg font-black text-slate-900 mb-4">Selecciona tus asientos</h3>
+            <p v-if="loadingAsientos" class="mb-3 text-sm text-slate-500">Cargando asientos reales ocupados...</p>
             <div class="flex items-center gap-4 text-xs mb-4">
               <div class="flex items-center gap-1"><span class="w-4 h-4 rounded bg-white border-2 border-slate-300"></span>Libre</div>
               <div class="flex items-center gap-1"><span class="w-4 h-4 rounded bg-blue-600"></span>Elegido</div>
@@ -241,11 +590,9 @@ const formatoDuracion = (min: number) => {
               </button>
             </div>
 
-            <!-- Datos bancarios -->
             <div class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
               <h4 class="font-bold text-slate-900 mb-2 text-sm">Datos para transferencia</h4>
-              <p class="text-xs text-slate-600">Banco Pichincha · Cta. Cte. 2100123456</p>
-              <p class="text-xs text-slate-600">RUC 1891234567001 · Trans Latinos</p>
+              <p class="text-xs text-slate-600">Adjunta únicamente el comprobante oficial de la venta.</p>
             </div>
           </aside>
         </div>
@@ -256,7 +603,7 @@ const formatoDuracion = (min: number) => {
           <div class="grid gap-4 sm:grid-cols-2">
             <div class="rounded-2xl bg-slate-50 p-3">
               <label class="text-xs font-bold text-slate-700">Referencia / número de transacción</label>
-              <input v-model="referenciaPago" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1" placeholder="000123456"/>
+              <input v-model="referenciaPago" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
             </div>
             <div class="rounded-2xl bg-slate-50 p-3">
               <label class="text-xs font-bold text-slate-700">Captura del pago (imagen)</label>

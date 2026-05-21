@@ -13,20 +13,16 @@ export function useAuth() {
   const authStore = useAuthStore();
   const email = ref('');
   const password = ref('');
-  // nombre: campo de nombre completo (p. ej. "Gisselle Pérez")
   const nombre = ref('');
   const cedula = ref('');
-  
+
   const loading = ref(false);
   const isRegistering = ref(false);
   const showPassword = ref(false);
   const cooldownActive = ref(false);
-  
-  // Centralización de estado: El usuario ahora es una propiedad computada que 
-  // lee instantáneamente la sesión validada globalmente desde Pinia.
+
   const user = computed(() => authStore.user);
 
-  // Errores IHC individuales adaptados a los atributos físicos
   const errorNombre = ref('');
   const errorCedula = ref('');
   const errorEmail = ref('');
@@ -51,11 +47,10 @@ export function useAuth() {
     { label: 'Un número', isValid: /[0-9]/.test(password.value) },
   ]);
 
-  const completedRequirements = computed(() => 
+  const completedRequirements = computed(() =>
     passwordRequirements.value.filter(r => r.isValid).length
   );
 
-  // Validación de nombre completo (nombre y apellido)
   const validateNombre = () => {
     const trimmed = nombre.value.trim();
     if (!trimmed) {
@@ -70,7 +65,6 @@ export function useAuth() {
     errorNombre.value = '';
   };
 
-  // Validación de la Cédula (Ecuatoriana de 10 dígitos)
   const validateCedula = () => {
     const digits = cedula.value.trim();
     if (!digits) {
@@ -112,9 +106,9 @@ export function useAuth() {
 
   const handleAuthSubmit = async () => {
     if (loading.value || cooldownActive.value) return;
-    
+
     globalError.value = '';
-    
+
     if (isRegistering.value) {
       validateNombre();
       validateCedula();
@@ -130,7 +124,6 @@ export function useAuth() {
     loading.value = true;
     try {
       if (isRegistering.value) {
-        // dividir nombre completo en nombres y apellidos para el repositorio
         const parts = nombre.value.trim().split(/\s+/).filter(Boolean);
         const nombresVal = parts.slice(0, 1).join(' ');
         const apellidosVal = parts.slice(1).join(' ') || '';
@@ -140,40 +133,20 @@ export function useAuth() {
           password: password.value,
           nombres: nombresVal,
           apellidos: apellidosVal,
-          cedula: cedula.value.trim()
+          cedula: cedula.value.trim(),
         });
-        // En entorno de desarrollo confirmación desactivada: el usuario puede iniciar sesión
         globalError.value = '¡Cuenta creada con éxito! Ya puedes iniciar sesión.';
         isRegistering.value = false;
-        // opcional: limpiar contraseña por seguridad
         password.value = '';
       } else {
         const loggedUser = await authRepository.signIn(email.value.trim(), password.value);
         globalError.value = '';
 
-        // Sincronización estricta con Pinia ANTES de invocar el enrutador
         authStore.user = loggedUser;
-        authStore.isAuthenticated = true;
-
-        // Redirigir a la pantalla correcta según el rol del usuario
-        let redirectPath = '/';
-        // Normalizamos el rol a minúsculas y sin espacios extra para compararlo de forma segura
-        const rol = String(loggedUser.rol || '').toLowerCase().trim();
-        
-        if (rol === 'administrador' || rol === 'admin') {
-          redirectPath = '/admin/buses'; // Pantalla inicial del Admin
-        } else if (rol === 'oficinista') {
-          redirectPath = '/venta';       // Pantalla inicial del Oficinista
-        } else if (rol === 'chofer') {
-          redirectPath = '/abordaje';    // Pantalla inicial del Chofer
-        } else {
-          redirectPath = '/buscar';      // Pantalla inicial del Cliente / Usuario Final
-        }
-        
-        router.push(redirectPath);
+        router.push('/');
       }
     } catch (err: any) {
-      const msg = err.message.toLowerCase();
+      const msg = (err.message || '').toLowerCase();
       if (msg.includes('rate limit') || msg.includes('429')) {
         cooldownActive.value = true;
         localStorage.setItem(COOLDOWN_KEY, String(Date.now() + 60000));
@@ -193,8 +166,26 @@ export function useAuth() {
   };
 
   return {
-    email, password, nombre, cedula, loading, isRegistering, showPassword, cooldownActive, user,
-    errorNombre, errorCedula, errorEmail, errorPassword, globalError, passwordRequirements, completedRequirements,
-    validateNombre, validateCedula, validateEmail, validatePassword, handleAuthSubmit
+    email,
+    password,
+    nombre,
+    cedula,
+    loading,
+    isRegistering,
+    showPassword,
+    cooldownActive,
+    user,
+    errorNombre,
+    errorCedula,
+    errorEmail,
+    errorPassword,
+    globalError,
+    passwordRequirements,
+    completedRequirements,
+    validateNombre,
+    validateCedula,
+    validateEmail,
+    validatePassword,
+    handleAuthSubmit,
   };
 }

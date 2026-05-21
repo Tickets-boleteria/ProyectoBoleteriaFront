@@ -4,6 +4,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import Login from './Presentation/Views/Login.vue'
+import Dashboard from './Presentation/Views/Dashboard.vue'
 import Usuarios from './Presentation/Views/Usuarios.vue'
 import BusesAdmin from './Presentation/Views/admin/BusesAdmin.vue'
 import FrecuenciasAdmin from './Presentation/Views/admin/FrecuenciasAdmin.vue'
@@ -27,8 +28,7 @@ const router = createRouter({
   routes: [
     { path: '/login', name: 'Login', component: Login, meta: { public: true } },
 
-    // Restaurar la ruta raíz para no romper los <router-link> de los botones de navegación
-    { path: '/', name: 'Dashboard', redirect: '/login' },
+    { path: '/', name: 'Dashboard', component: Dashboard },
 
     // Administración
     { path: '/admin/usuarios',    name: 'Usuarios',         component: Usuarios,        meta: { roles: ADMIN } },
