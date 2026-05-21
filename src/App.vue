@@ -1,20 +1,13 @@
-<script setup lang="ts">
-import Historial from './Presentation/Views/Historial.vue';
-</script>
-
 <template>
-  <main>
-    <h1>Bienvenido a la Boletería</h1>
-    <p>La arquitectura limpia y Supabase están configurados correctamente.</p>
-    <hr />
-    <Historial />
-  </main>
+  <AppLayout v-if="authStore.isAuthenticated">
+    <router-view />
+  </AppLayout>
+  <router-view v-else />
 </template>
 
-<style scoped>
-main {
-  text-align: center;
-  padding: 2rem;
-  font-family: sans-serif;
-}
-</style>
+<script setup lang="ts">
+import { useAuthStore } from './Presentation/Store/authStore'
+import AppLayout from './Presentation/Components/AppLayout.vue'
+
+const authStore = useAuthStore()
+</script>
