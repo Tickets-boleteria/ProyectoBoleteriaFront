@@ -59,14 +59,25 @@ const app = createApp(App)
 app.use(pinia)
 app.use(router)
 
+// Suscribir a cambios de sesión UNA sola vez, antes de montar.
+const authStore = useAuthStore(pinia)
+//authStore.subscribeToAuthChanges()
+
 router.beforeEach(async (to) => {
-  const authStore = useAuthStore()
-  if (!authStore.user) {
+  // Esperar a que termine la PRIMERA rehidratación de sesión.
+  // Sin esto, al recargar el rol llega null y se pierden los botones.
+  if (!authStore.ready) {
     await authStore.initializeAuth()
   }
 
-  if (to.path === '/login' && authStore.isAuthenticated) {
-    return { path: '/' }
+  // Si está autenticado y trata de ir al login O a la raíz "/",
+  // lo enviamos automáticamente a su dashboard específico
+  if ((to.path === '/login' || to.path === '/') && authStore.isAuthenticated) {
+    const r = (authStore.role || 'cliente').toLowerCase().trim()
+    if (ADMIN.includes(r)) return { path: '/admin/buses' }
+    if (OFICINISTA.includes(r)) return { path: '/venta' }
+    if (CHOFER.includes(r)) return { path: '/abordaje' }
+    return { path: '/buscar' }
   }
   if (!to.meta.public && !authStore.isAuthenticated) {
     return { path: '/login' }
@@ -75,10 +86,10 @@ router.beforeEach(async (to) => {
   const allowedRoles: string[] | undefined = (to.meta as any).roles?.map((r: string) => r.toLowerCase().trim())
   if (!allowedRoles || allowedRoles.length === 0) return true
 
-  const u: any = authStore.user
-  const userRole = (u?.rol || u?.user_metadata?.rol || '').toLowerCase().trim()
+  const userRole = (authStore.role || '').toLowerCase().trim()
 
-  // Si el usuario tiene el rol permitido, pasa. Si no, lo devolvemos a la raíz.
+  // Si el usuario tiene el rol permitido, pasa. Si no, lo devolvemos a la raíz,
+  // lo cual activará la regla de arriba y lo auto-redigirá a su lugar seguro.
   if (userRole && allowedRoles.includes(userRole)) return true
   return { path: '/' }
 })
