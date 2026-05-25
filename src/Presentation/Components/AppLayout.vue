@@ -151,9 +151,16 @@ const displayName = computed(() => {
   return u?.nombres || u?.user_metadata?.nombres || u?.email || 'Invitado'
 })
 
+const normalizeRole = (value: string | null | undefined) => {
+  const normalized = (value || '').toLowerCase().trim()
+  if (normalized === 'usuario final') return 'cliente'
+  return normalized
+}
+
 const visibleItems = computed(() => {
-  if (!role.value) return items.filter(i => !i.roles) // solo públicas si no hay rol
-  return items.filter(i => !i.roles || i.roles.includes(role.value!))
+  const currentRole = normalizeRole(role.value)
+  if (!currentRole) return items.filter(i => !i.roles) // solo públicas si no hay rol
+  return items.filter(i => !i.roles || i.roles.some(r => normalizeRole(r) === currentRole))
 })
 
 const currentTitle = computed(() => {
