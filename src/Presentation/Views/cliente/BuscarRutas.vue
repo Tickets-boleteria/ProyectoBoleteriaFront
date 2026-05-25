@@ -96,6 +96,7 @@ const asientosOcupadosPorTipo = reactive<Record<TipoServicio, string[]>>({
   VIP: [],
   EXECUTIVO: [],
 })
+const asientosVendidosPorRutaYTipo = ref<Record<number, Record<TipoServicio, number>>>({})
 const tipoSeleccionadoPorRuta = reactive<Record<number, TipoServicio | ''>>({})
 
 const filtros = reactive({
@@ -129,6 +130,26 @@ const resultados = computed(() => {
 })
 
 const tiposDisponiblesPorBus = (busId: number) => configuracionesPorBus.value[busId] ?? []
+
+const vendidosPorRutaTipo = (rutaId: number, tipo: TipoServicio) => {
+  const vendidosRuta = asientosVendidosPorRutaYTipo.value[rutaId]
+  if (!vendidosRuta) return 0
+  return Number(vendidosRuta[tipo] ?? 0)
+}
+
+const asientosLibresPorRutaYTipo = (ruta: RutaDisponible, tipo: TipoServicio | '') => {
+  if (!tipo) return 0
+  const configuracion = configuracionSeleccionadaPorBus(ruta.busId, tipo)
+  const cantidadBase = Number(configuracion?.cantidad ?? 0)
+  if (!cantidadBase || cantidadBase <= 0) return 0
+
+  const vendidos = vendidosPorRutaTipo(ruta.id, tipo)
+  return Math.max(cantidadBase - vendidos, 0)
+}
+
+const tiposDisponiblesParaRuta = (ruta: RutaDisponible) => {
+  return tiposDisponiblesPorBus(ruta.busId).filter((tipo) => asientosLibresPorRutaYTipo(ruta, tipo.tipo) > 0)
+}
 
 const configuracionSeleccionadaPorBus = (busId: number, tipo: TipoServicio | '') => {
   if (!tipo) return null
@@ -253,6 +274,79 @@ const cargarAsientosLibresPorRuta = async (rutaIds: number[]) => {
   return libres
 }
 
+const cargarAsientosVendidosPorTipoEnRutas = async (rutaIds: number[]) => {
+  const vendidos: Record<number, Record<TipoServicio, number>> = {}
+  if (!rutaIds.length) return vendidos
+
+  const { data: ventas, error: ventasError } = await supabase
+    .from('Ventas')
+    .select('Id, RutaId')
+    .in('RutaId', rutaIds)
+
+  if (ventasError) {
+    throw new Error(ventasError.message)
+  }
+
+  const ventaRutaMap = new Map<number, number>()
+  for (const venta of ventas || []) {
+    const ventaId = Number(getFieldValue(venta, 'Id') ?? getFieldValue(venta, 'id'))
+    const rutaId = Number(getFieldValue(venta, 'RutaId') ?? getFieldValue(venta, 'rutaid'))
+    if (ventaId && rutaId) {
+      ventaRutaMap.set(ventaId, rutaId)
+      vendidos[rutaId] = vendidos[rutaId] ?? { NORMAL: 0, VIP: 0, EXECUTIVO: 0 }
+    }
+  }
+
+  const ventaIds = Array.from(ventaRutaMap.keys())
+  if (!ventaIds.length) return vendidos
+
+  const { data: boletos, error: boletosError } = await supabase
+    .from('Boletos')
+    .select('VentaId, AsientoId')
+    .in('VentaId', ventaIds)
+
+  if (boletosError) {
+    throw new Error(boletosError.message)
+  }
+
+  const asientoIds = [...new Set((boletos || [])
+    .map((boleto: DbRow) => Number(getFieldValue(boleto, 'AsientoId') ?? getFieldValue(boleto, 'asientoid')))
+    .filter(Boolean))]
+
+  if (!asientoIds.length) return vendidos
+
+  const { data: asientos, error: asientosError } = await supabase
+    .from('Asientos')
+    .select('Id, Tipo')
+    .in('Id', asientoIds)
+
+  if (asientosError) {
+    throw new Error(asientosError.message)
+  }
+
+  const tipoPorAsientoId = new Map<number, TipoServicio>()
+  for (const asiento of asientos || []) {
+    const asientoId = Number(getFieldValue(asiento, 'Id') ?? getFieldValue(asiento, 'id'))
+    const tipo = normalizarTipoServicio(getFieldValue(asiento, 'Tipo') ?? getFieldValue(asiento, 'tipo'))
+    if (asientoId && tipo) {
+      tipoPorAsientoId.set(asientoId, tipo as TipoServicio)
+    }
+  }
+
+  for (const boleto of boletos || []) {
+    const ventaId = Number(getFieldValue(boleto, 'VentaId') ?? getFieldValue(boleto, 'ventaid'))
+    const asientoId = Number(getFieldValue(boleto, 'AsientoId') ?? getFieldValue(boleto, 'asientoid'))
+    const rutaId = ventaRutaMap.get(ventaId)
+    const tipo = tipoPorAsientoId.get(asientoId)
+
+    if (!rutaId || !tipo) continue
+    vendidos[rutaId] = vendidos[rutaId] ?? { NORMAL: 0, VIP: 0, EXECUTIVO: 0 }
+    vendidos[rutaId][tipo] = (vendidos[rutaId][tipo] ?? 0) + 1
+  }
+
+  return vendidos
+}
+
 const cargarRutas = async () => {
   loading.value = true
   error.value = ''
@@ -276,7 +370,7 @@ const cargarRutas = async () => {
     const frecuenciaIds = [...new Set(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'FrecuenciaId') ?? getFieldValue(fila, 'frecuenciaid'))))].filter(Boolean)
     const busIds = [...new Set(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'BusId') ?? getFieldValue(fila, 'busid'))))].filter(Boolean)
 
-    const [frecuenciasResp, busesResp, cooperativasResp, configuracionesResp, preciosBaseResp, libresResp] = await Promise.all([
+    const [frecuenciasResp, busesResp, cooperativasResp, configuracionesResp, preciosBaseResp, libresResp, vendidosPorTipoResp] = await Promise.all([
       frecuenciaIds.length
         ? supabase.from('Frecuencias').select('Id, CiudadOrigen, CiudadDestino, HoraSalida, CooperativaId').in('Id', frecuenciaIds)
         : Promise.resolve({ data: [], error: null } as any),
@@ -288,7 +382,8 @@ const cargarRutas = async () => {
         ? supabase.from('ConfiguracionesAsientos').select('BusId, NombreTipo, Tipo, Cantidad, PrecioBase').in('BusId', busIds)
         : Promise.resolve({ data: [], error: null } as any),
       cargarPrecioBasePorBus(busIds),
-      cargarAsientosLibresPorRuta(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id')))).catch(err => { throw err })
+      cargarAsientosLibresPorRuta(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id')))).catch(err => { throw err }),
+      cargarAsientosVendidosPorTipoEnRutas(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id')))).catch(err => { throw err })
     ])
 
     const frecuenciasData = frecuenciasResp.data || []
@@ -333,6 +428,7 @@ const cargarRutas = async () => {
     }, {})
 
     configuracionesPorBus.value = configuracionesAgrupadas
+    asientosVendidosPorRutaYTipo.value = vendidosPorTipoResp
 
     const cooperativasPorId = new Map<number, DbRow>()
     for (const fila of (cooperativasQuery as any).data || []) {
@@ -648,6 +744,11 @@ const seleccionarRuta = async (ruta: RutaDisponible, tipoServicio: TipoServicio 
     return
   }
 
+  if (asientosLibresPorRutaYTipo(ruta, tipoServicio) <= 0) {
+    error.value = 'El tipo de asiento seleccionado ya no tiene asientos disponibles.'
+    return
+  }
+
   error.value = ''
   rutaSeleccionada.value = ruta
   tipoServicioSeleccionado.value = tipoServicio
@@ -777,10 +878,10 @@ watch(() => filtros.fecha, () => {
               <select
                 v-model="tipoSeleccionadoPorRuta[r.id]"
                 class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700"
-                :disabled="tiposDisponiblesPorBus(r.busId).length === 0"
+                :disabled="tiposDisponiblesParaRuta(r).length === 0"
               >
                 <option value="">Selecciona una opción</option>
-                <option v-for="tipo in tiposDisponiblesPorBus(r.busId)" :key="tipo.tipo" :value="tipo.tipo">
+                <option v-for="tipo in tiposDisponiblesParaRuta(r)" :key="tipo.tipo" :value="tipo.tipo">
                   {{ tipo.nombre }} · ${{ tipo.precioBase.toFixed(2) }}
                 </option>
               </select>
@@ -790,17 +891,20 @@ watch(() => filtros.fecha, () => {
               <p v-else class="text-xs font-medium text-slate-500 mt-2">
                 Selecciona un tipo para ver el costo
               </p>
-              <p v-if="tipoSeleccionadoPorRuta[r.id]" class="text-xs font-bold mt-2" :class="asientosLibresDelTipoSeleccionado > 0 ? 'text-emerald-600' : 'text-red-600'">
-                {{ asientosLibresDelTipoSeleccionado > 0 ? asientosLibresDelTipoSeleccionado + ' asientos libres para este tipo' : 'No hay asientos disponibles para este tipo' }}
+              <p v-if="tipoSeleccionadoPorRuta[r.id]" class="text-xs font-bold mt-2" :class="asientosLibresPorRutaYTipo(r, tipoSeleccionadoPorRuta[r.id]) > 0 ? 'text-emerald-600' : 'text-red-600'">
+                {{ asientosLibresPorRutaYTipo(r, tipoSeleccionadoPorRuta[r.id]) > 0 ? asientosLibresPorRutaYTipo(r, tipoSeleccionadoPorRuta[r.id]) + ' asientos libres para este tipo' : 'No hay asientos disponibles para este tipo' }}
               </p>
               <p v-if="tiposDisponiblesPorBus(r.busId).length === 0" class="text-xs font-medium text-amber-600 mt-2">
                 Este bus aún no tiene tipos de asiento configurados.
+              </p>
+              <p v-else-if="tiposDisponiblesParaRuta(r).length === 0" class="text-xs font-medium text-rose-600 mt-2">
+                Los tipos de este bus están agotados para esta ruta.
               </p>
               <p class="text-xs font-bold" :class="r.asientosLibres > 10 ? 'text-emerald-600' : r.asientosLibres > 0 ? 'text-amber-600' : 'text-red-600'">
                 {{ r.asientosLibres > 0 ? r.asientosLibres + ' asientos libres' : 'Lleno' }}
               </p>
             </div>
-            <button :disabled="!tipoSeleccionadoPorRuta[r.id] || r.asientosLibres === 0 || loadingAsientos" @click="seleccionarRuta(r, tipoSeleccionadoPorRuta[r.id])"
+            <button :disabled="!tipoSeleccionadoPorRuta[r.id] || r.asientosLibres === 0 || asientosLibresPorRutaYTipo(r, tipoSeleccionadoPorRuta[r.id]) === 0 || loadingAsientos" @click="seleccionarRuta(r, tipoSeleccionadoPorRuta[r.id])"
               class="rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-xl shadow-blue-100 hover:bg-blue-700 disabled:opacity-50">
               Elegir asientos
             </button>
