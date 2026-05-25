@@ -95,7 +95,7 @@ export class SupabaseBusRepository implements IBusRepository {
   async actualizar(id: number, bus: Partial<Bus>): Promise<Bus> {
     const busActual = await this.obtenerPorId(id);
     if (!busActual) {
-      throw new BusNoEncontradoException(id);
+      throw new BusNoEncontradoException(String(id));
     }
 
     const busActualizado = new Bus(

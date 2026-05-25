@@ -167,17 +167,21 @@ const precioPorTipoYBus = (busId: number, tipo: TipoServicio | '' ) => {
 const asientosPorTipoSeleccionado = computed(() => {
   if (!rutaSeleccionada.value || !tipoServicioSeleccionado.value) return []
 
-  const configuracion = configuracionSeleccionadaPorBus(rutaSeleccionada.value.busId, tipoServicioSeleccionado.value)
-  const cantidadBase = configuracion?.cantidad ?? rutaSeleccionada.value.totalAsientos
-  if (!cantidadBase || cantidadBase <= 0) return []
+  return asientosDelBus.value.filter((asiento) => asiento.tipo === tipoServicioSeleccionado.value)
+})
 
-  return Array.from({ length: Math.max(cantidadBase, 0) }, (_, index) => {
-    const numero = String(index + 1).padStart(2, '0')
-    return {
-      numero,
-      ocupado: false,
-    }
-  })
+const asientosPorTipoEnBus = computed(() => {
+  const agrupados: Record<TipoServicio, AsientoBusDisponible[]> = {
+    NORMAL: [],
+    VIP: [],
+    EXECUTIVO: [],
+  }
+
+  for (const asiento of asientosDelBus.value) {
+    agrupados[asiento.tipo].push(asiento)
+  }
+
+  return agrupados
 })
 
 const precioSeleccionado = computed(() => {
@@ -188,12 +192,11 @@ const precioSeleccionado = computed(() => {
 const asientosLibresDelTipoSeleccionado = computed(() => {
   if (!rutaSeleccionada.value || !tipoServicioSeleccionado.value) return 0
 
-  const configuracion = configuracionSeleccionadaPorBus(rutaSeleccionada.value.busId, tipoServicioSeleccionado.value)
-  const cantidadBase = configuracion?.cantidad ?? rutaSeleccionada.value.totalAsientos
-  if (!cantidadBase || cantidadBase <= 0) return 0
+  const asientosDelTipo = asientosPorTipoSeleccionado.value
+  if (!asientosDelTipo.length) return 0
 
-  const ocupados = asientosOcupadosPorTipo[tipoServicioSeleccionado.value].length
-  return Math.max(cantidadBase - ocupados, 0)
+  const ocupados = seatsAlreadyUsedByType(tipoServicioSeleccionado.value)
+  return asientosDelTipo.filter((asiento) => !ocupados.has(asiento.numero.toString().padStart(2, '0'))).length
 })
 
 const tipoServicioSeleccionado = ref<TipoServicio | ''>('')
@@ -948,19 +951,38 @@ watch(() => filtros.fecha, () => {
             </div>
             <div class="rounded-xl bg-slate-100 p-4 max-w-md mx-auto">
               <div class="text-center text-xs text-slate-500 mb-3 pb-2 border-b border-slate-200">⬆ Frente del bus</div>
-              <div class="grid grid-cols-5 gap-2">
-                <template v-for="(a, idx) in asientosLayout" :key="a.numero">
-                  <button @click="toggleAsiento(a)" :disabled="a.ocupado"
-                    class="aspect-square rounded-lg text-xs font-bold transition-all"
-                    :class="a.ocupado
-                      ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                      : asientosSeleccionados.includes(a.numero)
-                        ? 'bg-blue-600 text-white shadow-md'
-                        : 'bg-white border-2 border-slate-300 hover:border-blue-500'">
-                    {{ a.numero }}
-                  </button>
-                  <div v-if="idx % 4 === 1" class="aspect-square"></div>
-                </template>
+              <div class="space-y-4">
+                <section v-for="tipo in TIPOS_SERVICIO" :key="tipo.value" class="rounded-xl border p-3" :class="tipo.value === tipoServicioSeleccionado ? 'border-blue-300 bg-blue-50' : 'border-slate-200 bg-slate-50'">
+                  <div class="flex items-center justify-between mb-3">
+                    <p class="text-xs font-black uppercase tracking-wider" :class="tipo.value === tipoServicioSeleccionado ? 'text-blue-700' : 'text-slate-500'">
+                      {{ tipo.label }}
+                    </p>
+                    <p class="text-[10px] font-bold" :class="tipo.value === tipoServicioSeleccionado ? 'text-blue-600' : 'text-slate-400'">
+                      {{ tipo.value === tipoServicioSeleccionado ? 'Sección activa' : 'Bloqueada' }}
+                    </p>
+                  </div>
+                  <div v-if="asientosPorTipoEnBus[tipo.value].length === 0" class="text-xs text-slate-400">
+                    No hay asientos registrados para este tipo.
+                  </div>
+                  <div v-else class="grid grid-cols-5 gap-2">
+                    <template v-for="(a, idx) in asientosPorTipoEnBus[tipo.value]" :key="a.id">
+                      <button
+                        @click="tipo.value === tipoServicioSeleccionado && toggleAsiento({ numero: a.numero, ocupado: seatsAlreadyUsedByType(tipo.value).has(a.numero.toString().padStart(2, '0')) })"
+                        :disabled="tipo.value !== tipoServicioSeleccionado || seatsAlreadyUsedByType(tipo.value).has(a.numero.toString().padStart(2, '0'))"
+                        class="aspect-square rounded-lg text-xs font-bold transition-all"
+                        :class="tipo.value !== tipoServicioSeleccionado
+                          ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-70'
+                          : seatsAlreadyUsedByType(tipo.value).has(a.numero.toString().padStart(2, '0'))
+                            ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                            : asientosSeleccionados.includes(a.numero)
+                              ? 'bg-blue-600 text-white shadow-md'
+                              : 'bg-white border-2 border-slate-300 hover:border-blue-500'">
+                        {{ a.numero }}
+                      </button>
+                      <div v-if="idx % 4 === 1" class="aspect-square"></div>
+                    </template>
+                  </div>
+                </section>
               </div>
             </div>
           </div>
