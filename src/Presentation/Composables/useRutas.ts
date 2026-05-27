@@ -32,7 +32,7 @@ export function useRutas() {
 
       // 3. Cargar Rutas Habilitadas y hacer un "Join" con las otras tablas
       const { data: rData } = await supabase
-        .from('RutasDiarias')
+        .from('Rutas')
         .select(`*, Buses(*), Frecuencias(*)`)
         .order('CreatedAt', { ascending: false });
       
