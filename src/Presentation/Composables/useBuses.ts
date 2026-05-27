@@ -1,18 +1,7 @@
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted } from 'vue';
 import { Bus } from '../../Domain/Entities/Bus';
 import { CrearBus, CrearBusInput } from '../../Application/UseCases/CrearBus';
 import { SupabaseBusRepository } from '../../Infrastructure/Repositories/SupabaseBusRepository';
-
-const crearBusVacio = (): CrearBusInput => ({
-  cooperativaId: 1,
-  numero: '',
-  placa: '',
-  estructura: 'UnPiso',
-  asientosNormales: 40,
-  asientosVip: 0,
-  asientosEjecutivos: 0,
-  totalAsientos: 40,
-});
 
 export function useBuses() {
   const buses = ref<Bus[]>([]);
@@ -22,38 +11,12 @@ export function useBuses() {
   const busRepo = new SupabaseBusRepository();
   const crearBusUseCase = new CrearBus(busRepo);
 
-  const nuevoBus = ref<CrearBusInput>(crearBusVacio());
-
-  const recalcularTotalAsientos = () => {
-    const normales = Number(nuevoBus.value.asientosNormales ?? 0);
-    const vip = Number(nuevoBus.value.asientosVip ?? 0);
-    const ejecutivos = Number(nuevoBus.value.asientosEjecutivos ?? 0);
-
-    if (nuevoBus.value.estructura === 'UnPiso') {
-      nuevoBus.value.asientosVip = 0;
-      nuevoBus.value.asientosEjecutivos = 0;
-      nuevoBus.value.totalAsientos = normales;
-      return;
-    }
-
-    nuevoBus.value.totalAsientos = normales + vip + ejecutivos;
-  };
-
-  watch(
-    () => [nuevoBus.value.estructura, nuevoBus.value.asientosNormales, nuevoBus.value.asientosVip, nuevoBus.value.asientosEjecutivos],
-    () => recalcularTotalAsientos(),
-    { immediate: true }
-  );
-
-  watch(
-    () => nuevoBus.value.estructura,
-    (estructura) => {
-      if (estructura === 'UnPiso') {
-        nuevoBus.value.asientosVip = 0;
-        nuevoBus.value.asientosEjecutivos = 0;
-      }
-    }
-  );
+  const nuevoBus = ref<CrearBusInput>({
+    cooperativaId: 1, // Asumimos ID 1 para la única cooperativa
+    numero: '',
+    placa: '',
+    totalAsientos: 40,
+  });
 
   async function cargarBuses() {
     try {
@@ -74,7 +37,8 @@ export function useBuses() {
       error.value = '';
       await crearBusUseCase.ejecutar(nuevoBus.value);
       // Limpiar formulario y recargar lista
-      nuevoBus.value = crearBusVacio();
+      nuevoBus.value.numero = '';
+      nuevoBus.value.placa = '';
       await cargarBuses();
     } catch (err: any) {
       error.value = err.message || 'Error al registrar el bus.';
