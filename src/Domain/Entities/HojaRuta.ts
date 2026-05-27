@@ -5,7 +5,7 @@ export interface HojaRuta {
   id?: number;
   frecuenciaId: number;
   busId?: number | null;
-  choferId?: number | null;
+  choferId?: string | null;
   fechaSalida: string; // YYYY-MM-DD
   horaSalida: string; // HH:mm
   origen: string;
@@ -20,7 +20,7 @@ export interface HojaRuta {
 export interface CrearHojaRutaManualDto {
   frecuenciaId: number;
   busId?: number;
-  choferId?: number;
+  choferId?: string;
   fechaSalida: string;
   horaSalida?: string;
   observaciones?: string;
