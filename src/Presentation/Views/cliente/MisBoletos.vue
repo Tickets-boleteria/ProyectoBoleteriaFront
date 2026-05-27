@@ -211,14 +211,14 @@ onMounted(() => {
         <div class="px-6 pb-6">
           <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Código de barras</p>
           <div class="bg-white p-3 border border-slate-200 rounded-xl overflow-x-auto">
-            <svg :viewBox="`0 0 ${barcodeWidth} 80`" :width="barcodeWidth * 2" height="80" preserveAspectRatio="none">
+            <svg :viewBox="`0 0 ${barcodeWidth} 100`" :width="Math.max(240, barcodeWidth * 2)" height="100" preserveAspectRatio="xMidYMin meet">
               <g>
                 <rect v-for="(bar, i) in barsForActive" :key="i"
                   :x="barsForActive.slice(0, i).reduce((s, b) => s + b.width, 0)"
-                  y="0" :width="bar.width" height="70"
+                  y="0" :width="bar.width" height="80"
                   :fill="bar.black ? '#0f172a' : '#ffffff'"/>
               </g>
-              <text :x="barcodeWidth / 2" y="78" text-anchor="middle" font-family="monospace" font-size="6" fill="#0f172a">{{ boletoActivo.codigo }}</text>
+              <text :x="barcodeWidth / 2" :y="96" text-anchor="middle" font-family="monospace" font-size="12" fill="#0f172a" dominant-baseline="alphabetic" style="letter-spacing:1px">{{ boletoActivo.codigo }}</text>
             </svg>
           </div>
           <p class="text-xs text-slate-500 mt-2">Presenta el QR o el código de barras al chofer al abordar.</p>
@@ -262,9 +262,9 @@ onMounted(() => {
               <p>💺 Asiento <strong>{{ b.asiento }}</strong> · Bus {{ b.busPlaca }}</p>
               <p class="font-mono text-xs">{{ b.codigo }}</p>
             </div>
-            <button @click="verBoleto(b)" :disabled="b.estado === 'PENDIENTE'"
-              class="w-full rounded-2xl bg-blue-600 py-3 font-black text-white shadow-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
-              {{ b.estado === 'PENDIENTE' ? 'Esperando verificación' : 'Ver QR y código' }}
+            <button @click="verBoleto(b)"
+              class="w-full rounded-2xl bg-blue-600 py-3 font-black text-white shadow-md hover:bg-blue-700">
+              Ver QR y código
             </button>
           </div>
         </article>
