@@ -2,6 +2,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { supabase } from '../../../Infrastructure/Api/supabaseClient'
 import { useAuthStore } from '../../Store/authStore'
+import { opcionesEstructuraBus, type TipoEstructuraBus } from '../../../Domain/Entities/Ruta'
 
 interface RutaDisponible {
   id: number
@@ -16,6 +17,8 @@ interface RutaDisponible {
   asientosLibres: number
   totalAsientos: number
   busPlaca: string
+  duracionMinutos: number
+  estructuraBus: TipoEstructuraBus
 }
 
 type TipoServicio = 'NORMAL' | 'VIP' | 'EXECUTIVO'
@@ -131,6 +134,27 @@ const resultados = computed(() => {
 
 const tiposDisponiblesPorBus = (busId: number) => configuracionesPorBus.value[busId] ?? []
 
+const estructuraSeleccionadaPorRuta = reactive<Record<number, TipoEstructuraBus | ''>>({})
+
+const estructuraPorRutaDisponible = (ruta: RutaDisponible) => opcionesEstructuraBus(ruta.duracionMinutos)
+
+const formatearEstructura = (estructura: TipoEstructuraBus | '') => {
+  if (estructura === 'DosPisos') return 'Dos pisos'
+  if (estructura === 'UnPiso') return 'Un piso'
+  return 'Sin estructura'
+}
+
+const tiposDisponiblesPorEstructura = (ruta: RutaDisponible, estructura: TipoEstructuraBus | '') => {
+  if (!estructura) return []
+
+  const tiposBus = tiposDisponiblesPorBus(ruta.busId)
+  const tiposFiltrados = estructura === 'UnPiso'
+    ? tiposBus.filter((tipo) => tipo.tipo === 'NORMAL')
+    : tiposBus
+
+  return tiposFiltrados.filter((tipo) => asientosLibresPorRutaYTipo(ruta, tipo.tipo) > 0)
+}
+
 const vendidosPorRutaTipo = (rutaId: number, tipo: TipoServicio) => {
   const vendidosRuta = asientosVendidosPorRutaYTipo.value[rutaId]
   if (!vendidosRuta) return 0
@@ -147,8 +171,8 @@ const asientosLibresPorRutaYTipo = (ruta: RutaDisponible, tipo: TipoServicio | '
   return Math.max(cantidadBase - vendidos, 0)
 }
 
-const tiposDisponiblesParaRuta = (ruta: RutaDisponible) => {
-  return tiposDisponiblesPorBus(ruta.busId).filter((tipo) => asientosLibresPorRutaYTipo(ruta, tipo.tipo) > 0)
+const tiposDisponiblesParaRuta = (ruta: RutaDisponible, estructura: TipoEstructuraBus | '') => {
+  return tiposDisponiblesPorEstructura(ruta, estructura)
 }
 
 const configuracionSeleccionadaPorBus = (busId: number, tipo: TipoServicio | '') => {
@@ -361,7 +385,7 @@ const cargarRutas = async () => {
 
     const { data: rutasData, error: rutasError } = await supabase
       .from('Rutas')
-      .select('Id, FrecuenciaId, BusId, Fecha')
+      .select('*')
       .gte('Fecha', filtros.fecha)
       .order('Id', { ascending: true })
 
@@ -375,10 +399,10 @@ const cargarRutas = async () => {
 
     const [frecuenciasResp, busesResp, cooperativasResp, configuracionesResp, preciosBaseResp, libresResp, vendidosPorTipoResp] = await Promise.all([
       frecuenciaIds.length
-        ? supabase.from('Frecuencias').select('Id, CiudadOrigen, CiudadDestino, HoraSalida, CooperativaId').in('Id', frecuenciaIds)
+        ? supabase.from('Frecuencias').select('Id, CiudadOrigen, CiudadDestino, HoraSalida, CooperativaId, Duracion').in('Id', frecuenciaIds)
         : Promise.resolve({ data: [], error: null } as any),
       busIds.length
-        ? supabase.from('Buses').select('Id, Placa, TotalAsientos').in('Id', busIds)
+        ? supabase.from('Buses').select('*').in('Id', busIds)
         : Promise.resolve({ data: [], error: null } as any),
       Promise.resolve(null),
       busIds.length
@@ -456,6 +480,33 @@ const cargarRutas = async () => {
         if (!min) return config.precioBase
         return config.precioBase > 0 && config.precioBase < min ? config.precioBase : min
       }, 0)
+      const duracionMinutos = Number(
+        getFieldValue(frecuencia, 'Duracion') ??
+        getFieldValue(frecuencia, 'duracion') ??
+        0
+      )
+      const estructuraBus = String(
+        getFieldValue(bus, 'Estructura') ??
+        getFieldValue(bus, 'estructura') ??
+        'UnPiso'
+      ) as TipoEstructuraBus
+
+      estructuraSeleccionadaPorRuta[id] = estructuraSeleccionadaPorRuta[id] || (estructuraPorRutaDisponible({
+        id,
+        frecuenciaId,
+        busId,
+        origen: '',
+        destino: '',
+        hora: '',
+        fecha: '',
+        cooperativa: '',
+        precioBase: 0,
+        asientosLibres: 0,
+        totalAsientos: 0,
+        busPlaca: '',
+        duracionMinutos,
+        estructuraBus,
+      } as RutaDisponible).includes(estructuraBus) ? estructuraBus : 'UnPiso')
 
       return {
         id,
@@ -470,6 +521,8 @@ const cargarRutas = async () => {
         asientosLibres: Math.max(totalAsientos - vendidos, 0),
         totalAsientos,
         busPlaca: String(getFieldValue(bus, 'Placa') ?? 'N/D'),
+        duracionMinutos,
+        estructuraBus,
       }
     }).filter((ruta) =>
       ruta.id > 0 &&
@@ -481,6 +534,13 @@ const cargarRutas = async () => {
       isValidText(ruta.fecha) &&
       ruta.totalAsientos > 0
     )
+
+    for (const ruta of rutas.value) {
+      if (!estructuraSeleccionadaPorRuta[ruta.id]) {
+        const opciones = estructuraPorRutaDisponible(ruta)
+        estructuraSeleccionadaPorRuta[ruta.id] = opciones.includes(ruta.estructuraBus) ? ruta.estructuraBus : opciones[0]
+      }
+    }
   } catch (err: any) {
     error.value = err?.message || 'No fue posible cargar las rutas.'
     rutas.value = []
@@ -725,6 +785,9 @@ function nuevaBusqueda() {
   asientosOcupadosPorTipo.EXECUTIVO = []
   asientosDelBus.value = []
   tipoServicioSeleccionado.value = ''
+  for (const key of Object.keys(estructuraSeleccionadaPorRuta)) {
+    delete estructuraSeleccionadaPorRuta[Number(key)]
+  }
   captura.value = null
   referenciaPago.value = ''
   mostrarPago.value = false
@@ -741,7 +804,14 @@ const seleccionarRuta = async (ruta: RutaDisponible, tipoServicio: TipoServicio 
     return
   }
 
-  const tiposDisponibles = tiposDisponiblesPorBus(ruta.busId)
+  const estructuraSeleccionada = estructuraSeleccionadaPorRuta[ruta.id] || ''
+  const opcionesEstructura = estructuraPorRutaDisponible(ruta)
+  if (!estructuraSeleccionada || !opcionesEstructura.includes(estructuraSeleccionada)) {
+    error.value = 'Selecciona una estructura de bus válida para esta ruta.'
+    return
+  }
+
+  const tiposDisponibles = tiposDisponiblesParaRuta(ruta, estructuraSeleccionada)
   if (!tiposDisponibles.some(tipo => tipo.tipo === tipoServicio)) {
     error.value = 'El tipo de asiento seleccionado no está disponible para este bus.'
     return
@@ -876,18 +946,38 @@ watch(() => filtros.fecha, () => {
               <p class="text-xl font-black text-slate-900">{{ r.origen }} → {{ r.destino }}</p>
               <p class="text-sm text-slate-500">{{ r.fecha }} · Sale {{ r.hora }} · Bus {{ r.busPlaca }}</p>
             </div>
-            <div class="min-w-[220px] text-right">
-              <label class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Tipo de asiento</label>
-              <select
-                v-model="tipoSeleccionadoPorRuta[r.id]"
-                class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700"
-                :disabled="tiposDisponiblesParaRuta(r).length === 0"
-              >
-                <option value="">Selecciona una opción</option>
-                <option v-for="tipo in tiposDisponiblesParaRuta(r)" :key="tipo.tipo" :value="tipo.tipo">
-                  {{ tipo.nombre }} · ${{ tipo.precioBase.toFixed(2) }}
-                </option>
-              </select>
+            <div class="min-w-[260px] text-right space-y-3">
+              <div class="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <label class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Tipo de asiento</label>
+                  <select
+                    v-model="tipoSeleccionadoPorRuta[r.id]"
+                    class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+                    :disabled="tiposDisponiblesParaRuta(r, estructuraSeleccionadaPorRuta[r.id]).length === 0"
+                  >
+                    <option value="">Selecciona una opción</option>
+                    <option v-for="tipo in tiposDisponiblesParaRuta(r, estructuraSeleccionadaPorRuta[r.id])" :key="tipo.tipo" :value="tipo.tipo">
+                      {{ tipo.nombre }} · ${{ tipo.precioBase.toFixed(2) }}
+                    </option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Estructura del bus</label>
+                  <select
+                    v-model="estructuraSeleccionadaPorRuta[r.id]"
+                    class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+                    :disabled="estructuraPorRutaDisponible(r).length === 0"
+                  >
+                    <option value="">Selecciona una opción</option>
+                    <option v-for="estructura in estructuraPorRutaDisponible(r)" :key="estructura" :value="estructura">
+                      {{ formatearEstructura(estructura) }}
+                    </option>
+                  </select>
+                </div>
+              </div>
+              <p class="text-[11px] font-medium text-slate-500">
+                Duración estimada: {{ formatoDuracion(r.duracionMinutos) }}
+              </p>
               <p v-if="tipoSeleccionadoPorRuta[r.id]" class="text-2xl font-black text-blue-700 mt-2">
                 ${{ precioPorTipoYBus(r.busId, tipoSeleccionadoPorRuta[r.id]).toFixed(2) }}
               </p>
@@ -900,14 +990,14 @@ watch(() => filtros.fecha, () => {
               <p v-if="tiposDisponiblesPorBus(r.busId).length === 0" class="text-xs font-medium text-amber-600 mt-2">
                 Este bus aún no tiene tipos de asiento configurados.
               </p>
-              <p v-else-if="tiposDisponiblesParaRuta(r).length === 0" class="text-xs font-medium text-rose-600 mt-2">
+              <p v-else-if="tiposDisponiblesParaRuta(r, estructuraSeleccionadaPorRuta[r.id]).length === 0" class="text-xs font-medium text-rose-600 mt-2">
                 Los tipos de este bus están agotados para esta ruta.
               </p>
               <p class="text-xs font-bold" :class="r.asientosLibres > 10 ? 'text-emerald-600' : r.asientosLibres > 0 ? 'text-amber-600' : 'text-red-600'">
                 {{ r.asientosLibres > 0 ? r.asientosLibres + ' asientos libres' : 'Lleno' }}
               </p>
             </div>
-            <button :disabled="!tipoSeleccionadoPorRuta[r.id] || r.asientosLibres === 0 || asientosLibresPorRutaYTipo(r, tipoSeleccionadoPorRuta[r.id]) === 0 || loadingAsientos" @click="seleccionarRuta(r, tipoSeleccionadoPorRuta[r.id])"
+            <button :disabled="!tipoSeleccionadoPorRuta[r.id] || !estructuraSeleccionadaPorRuta[r.id] || r.asientosLibres === 0 || asientosLibresPorRutaYTipo(r, tipoSeleccionadoPorRuta[r.id]) === 0 || loadingAsientos" @click="seleccionarRuta(r, tipoSeleccionadoPorRuta[r.id])"
               class="rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-xl shadow-blue-100 hover:bg-blue-700 disabled:opacity-50">
               Elegir asientos
             </button>
@@ -924,6 +1014,9 @@ watch(() => filtros.fecha, () => {
           <div>
             <p class="text-xs font-bold uppercase text-blue-600 tracking-wider">Ruta elegida</p>
             <p class="font-black text-slate-900">{{ rutaSeleccionada.origen }} → {{ rutaSeleccionada.destino }} · {{ rutaSeleccionada.fecha }} · {{ rutaSeleccionada.hora }}</p>
+            <p class="text-sm font-bold text-slate-600 mt-1">
+              Estructura: {{ formatearEstructura(estructuraSeleccionadaPorRuta[rutaSeleccionada.id] || rutaSeleccionada.estructuraBus) }}
+            </p>
             <p class="text-sm font-bold text-slate-600 mt-1">
               Tipo: {{ etiquetaTipoServicio(tipoServicioSeleccionado) }} · ${{ precioSeleccionado.toFixed(2) }}
             </p>
