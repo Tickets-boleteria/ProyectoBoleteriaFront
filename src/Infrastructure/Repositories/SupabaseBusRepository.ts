@@ -69,7 +69,6 @@ export class SupabaseBusRepository implements IBusRepository {
         Numero: bus.numero,
         Placa: bus.placa,
         TotalAsientos: bus.totalAsientos, 
-        Estructura: bus.estructura,
       })
       .select()
       .single();
@@ -90,7 +89,6 @@ export class SupabaseBusRepository implements IBusRepository {
     );
     bus.id = getFieldValue(data, 'id');
     bus.estado = getFieldValue(data, 'estado') ?? 'Activo';
-    bus.estructura = (getFieldValue(data, 'estructura') ?? 'UnPiso') as any;
     bus.createdAt = new Date(getFieldValue(data, 'createdat') ?? getFieldValue(data, 'created_at') ?? new Date());
     return bus;
   }

@@ -1,5 +1,3 @@
-export type TipoEstructuraBus = 'UnPiso' | 'DosPisos'
-
 export class Bus {
   public id?: number;
   public marcaChasis?: string;
@@ -9,18 +7,14 @@ export class Bus {
   public createdAt?: Date;
   public asientosNormales?: BusAsiento[];
   public asientosVip?: BusAsiento[];
-  public estructura: TipoEstructuraBus;
 
   constructor(
     public cooperativaId: number,
     public numero: string,
     public placa: string,
     public totalAsientos: number,
-    public estado: string = 'Activo',
-    estructura: TipoEstructuraBus = 'UnPiso'
-  ) {
-    this.estructura = estructura
-  }
+    public estado: string = 'Activo'
+  ) {}
 
   esValido(): boolean {
     return (

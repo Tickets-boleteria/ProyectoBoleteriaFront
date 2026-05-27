@@ -34,32 +34,9 @@ const { buses, nuevoBus, loading, error, registrarBus } = useBuses();
                  class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
         </div>
         <div>
-          <label class="text-xs font-bold text-slate-700">Estructura del bus</label>
-          <select v-model="nuevoBus.estructura"
-                  class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100">
-            <option value="UnPiso">Un piso</option>
-            <option value="DosPisos">Dos pisos</option>
-          </select>
-        </div>
-        <div>
-          <label class="text-xs font-bold text-slate-700">Asientos normales</label>
-          <input type="number" min="1" v-model.number="nuevoBus.asientosNormales" required
+          <label class="text-xs font-bold text-slate-700">Nº de Asientos</label>
+          <input type="number" v-model.number="nuevoBus.totalAsientos" required
                  class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
-        </div>
-        <div v-if="nuevoBus.estructura === 'DosPisos'">
-          <label class="text-xs font-bold text-slate-700">Asientos VIP</label>
-          <input type="number" min="0" v-model.number="nuevoBus.asientosVip"
-                 class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
-        </div>
-        <div v-if="nuevoBus.estructura === 'DosPisos'">
-          <label class="text-xs font-bold text-slate-700">Asientos ejecutivos</label>
-          <input type="number" min="0" v-model.number="nuevoBus.asientosEjecutivos"
-                 class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
-        </div>
-        <div>
-          <label class="text-xs font-bold text-slate-700">Total calculado</label>
-          <input type="number" :value="nuevoBus.totalAsientos" disabled
-                 class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 mt-1 outline-none text-slate-600" />
         </div>
         <div class="flex items-end">
           <button type="submit" :disabled="loading"
@@ -83,7 +60,6 @@ const { buses, nuevoBus, loading, error, registrarBus } = useBuses();
             <tr>
               <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Nº Unidad</th>
               <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Placa</th>
-              <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Estructura</th>
               <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Capacidad</th>
               <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Estado</th>
               <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Acciones</th>
@@ -99,7 +75,6 @@ const { buses, nuevoBus, loading, error, registrarBus } = useBuses();
             <tr v-for="bus in buses" :key="bus.id" class="hover:bg-slate-50">
               <td class="px-4 py-3 font-bold text-slate-800">{{ bus.numero }}</td>
               <td class="px-4 py-3 font-mono text-xs font-bold text-slate-700">{{ bus.placa }}</td>
-              <td class="px-4 py-3 text-sm text-slate-600">{{ bus.estructura === 'DosPisos' ? 'Dos pisos' : 'Un piso' }}</td>
               <td class="px-4 py-3 text-sm text-slate-600">{{ bus.totalAsientos }} asientos</td>
               <td class="px-4 py-3">
                 <span class="inline-block px-2.5 py-1 rounded-full text-xs font-bold"
