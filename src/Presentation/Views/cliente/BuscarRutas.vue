@@ -18,6 +18,27 @@ interface RutaDisponible {
   busPlaca: string
 }
 
+type TipoServicio = 'NORMAL' | 'VIP' | 'EXECUTIVO'
+
+interface ConfiguracionAsientoDisponible {
+  tipo: TipoServicio
+  nombre: string
+  precioBase: number
+  cantidad: number
+}
+
+interface AsientoBusDisponible {
+  id: number
+  numero: string
+  tipo: TipoServicio
+}
+
+const TIPOS_SERVICIO: Array<{ value: TipoServicio; label: string }> = [
+  { value: 'NORMAL', label: 'Normal' },
+  { value: 'VIP', label: 'VIP' },
+  { value: 'EXECUTIVO', label: 'Ejecutivo' },
+]
+
 type DbRow = Record<string, any>
 
 const getFieldValue = (obj: DbRow | null | undefined, fieldName: string) => {
@@ -28,20 +49,157 @@ const getFieldValue = (obj: DbRow | null | undefined, fieldName: string) => {
 
 const isValidText = (value: any) => typeof value === 'string' && value.trim().length > 0
 
+const normalizarTipoServicio = (value: any): TipoServicio | '' => {
+  const normalized = String(value ?? '').toLowerCase().trim()
+  if (normalized === 'normal') return 'NORMAL'
+  if (normalized === 'vip') return 'VIP'
+  if (normalized === 'ejecutivo' || normalized === 'executivo') return 'EXECUTIVO'
+  return ''
+}
+
+const compactarTexto = (value: any) =>
+  String(value ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '')
+
+const coincideTipo = (valor: any, tipo: TipoServicio) => {
+  const compactado = compactarTexto(valor)
+  const buscado = compactarTexto(tipo)
+  return compactado === buscado || compactado.includes(buscado) || buscado.includes(compactado)
+}
+
+const etiquetaTipoServicio = (tipo: TipoServicio | '') => {
+  const encontrado = TIPOS_SERVICIO.find(t => t.value === tipo)
+  return encontrado?.label ?? 'Sin tipo'
+}
+
+const obtenerFechaLocalISO = () => {
+  const hoy = new Date()
+  const year = hoy.getFullYear()
+  const month = String(hoy.getMonth() + 1).padStart(2, '0')
+  const day = String(hoy.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const fechaMinima = obtenerFechaLocalISO()
+
 const rutas = ref<RutaDisponible[]>([])
 const loading = ref(false)
 const loadingAsientos = ref(false)
 const error = ref('')
+const configuracionesPorBus = ref<Record<number, ConfiguracionAsientoDisponible[]>>({})
+const asientosDelBus = ref<AsientoBusDisponible[]>([])
+const asientosOcupadosPorTipo = reactive<Record<TipoServicio, string[]>>({
+  NORMAL: [],
+  VIP: [],
+  EXECUTIVO: [],
+})
+const asientosVendidosPorRutaYTipo = ref<Record<number, Record<TipoServicio, number>>>({})
+const tipoSeleccionadoPorRuta = reactive<Record<number, TipoServicio | ''>>({})
 
 const filtros = reactive({
-  origen: '', destino: '', fecha: new Date().toISOString().slice(0, 10),
+  origen: '', destino: '', fecha: fechaMinima,
 })
 
-const resultados = computed(() => rutas.value.filter(r =>
-  (!filtros.origen  || r.origen.toLowerCase().includes(filtros.origen.toLowerCase())) &&
-  (!filtros.destino || r.destino.toLowerCase().includes(filtros.destino.toLowerCase())) &&
-  (!filtros.fecha   || r.fecha === filtros.fecha)
-))
+const normalizarTexto = (value: string) => value.toLowerCase().trim()
+
+const errorFiltros = computed(() => {
+  const origen = filtros.origen.trim()
+  const destino = filtros.destino.trim()
+
+  if (origen && origen.length < 3) return 'El origen debe tener al menos 3 caracteres.'
+  if (destino && destino.length < 3) return 'El destino debe tener al menos 3 caracteres.'
+  if (filtros.fecha < fechaMinima) return 'Solo puedes buscar rutas desde hoy en adelante.'
+
+  return ''
+})
+
+const resultados = computed(() => {
+  if (errorFiltros.value) return []
+
+  const origenFiltro = normalizarTexto(filtros.origen)
+  const destinoFiltro = normalizarTexto(filtros.destino)
+
+  return rutas.value.filter(r =>
+    (!origenFiltro || normalizarTexto(r.origen).includes(origenFiltro)) &&
+    (!destinoFiltro || normalizarTexto(r.destino).includes(destinoFiltro)) &&
+    (!filtros.fecha || r.fecha >= filtros.fecha)
+  )
+})
+
+const tiposDisponiblesPorBus = (busId: number) => configuracionesPorBus.value[busId] ?? []
+
+const vendidosPorRutaTipo = (rutaId: number, tipo: TipoServicio) => {
+  const vendidosRuta = asientosVendidosPorRutaYTipo.value[rutaId]
+  if (!vendidosRuta) return 0
+  return Number(vendidosRuta[tipo] ?? 0)
+}
+
+const asientosLibresPorRutaYTipo = (ruta: RutaDisponible, tipo: TipoServicio | '') => {
+  if (!tipo) return 0
+  const configuracion = configuracionSeleccionadaPorBus(ruta.busId, tipo)
+  const cantidadBase = Number(configuracion?.cantidad ?? 0)
+  if (!cantidadBase || cantidadBase <= 0) return 0
+
+  const vendidos = vendidosPorRutaTipo(ruta.id, tipo)
+  return Math.max(cantidadBase - vendidos, 0)
+}
+
+const tiposDisponiblesParaRuta = (ruta: RutaDisponible) => {
+  return tiposDisponiblesPorBus(ruta.busId).filter((tipo) => asientosLibresPorRutaYTipo(ruta, tipo.tipo) > 0)
+}
+
+const configuracionSeleccionadaPorBus = (busId: number, tipo: TipoServicio | '') => {
+  if (!tipo) return null
+  const configuraciones = tiposDisponiblesPorBus(busId)
+  return configuraciones.find(item => item.tipo === tipo || coincideTipo(item.nombre, tipo))
+    ?? configuraciones.find(item => coincideTipo(item.tipo, tipo))
+    ?? null
+}
+
+const precioPorTipoYBus = (busId: number, tipo: TipoServicio | '' ) => {
+  const config = configuracionSeleccionadaPorBus(busId, tipo)
+  return Number(config?.precioBase ?? 0)
+}
+
+const asientosPorTipoSeleccionado = computed(() => {
+  if (!rutaSeleccionada.value || !tipoServicioSeleccionado.value) return []
+
+  return asientosDelBus.value.filter((asiento) => asiento.tipo === tipoServicioSeleccionado.value)
+})
+
+const asientosPorTipoEnBus = computed(() => {
+  const agrupados: Record<TipoServicio, AsientoBusDisponible[]> = {
+    NORMAL: [],
+    VIP: [],
+    EXECUTIVO: [],
+  }
+
+  for (const asiento of asientosDelBus.value) {
+    agrupados[asiento.tipo].push(asiento)
+  }
+
+  return agrupados
+})
+
+const precioSeleccionado = computed(() => {
+  if (!rutaSeleccionada.value || !tipoServicioSeleccionado.value) return 0
+  return precioPorTipoYBus(rutaSeleccionada.value.busId, tipoServicioSeleccionado.value)
+})
+
+const asientosLibresDelTipoSeleccionado = computed(() => {
+  if (!rutaSeleccionada.value || !tipoServicioSeleccionado.value) return 0
+
+  const asientosDelTipo = asientosPorTipoSeleccionado.value
+  if (!asientosDelTipo.length) return 0
+
+  const ocupados = seatsAlreadyUsedByType(tipoServicioSeleccionado.value)
+  return asientosDelTipo.filter((asiento) => !ocupados.has(asiento.numero.toString().padStart(2, '0'))).length
+})
+
+const tipoServicioSeleccionado = ref<TipoServicio | ''>('')
 
 const cargarPrecioBasePorBus = async (busIds: number[]) => {
   const precios = new Map<number, number>()
@@ -119,15 +277,92 @@ const cargarAsientosLibresPorRuta = async (rutaIds: number[]) => {
   return libres
 }
 
+const cargarAsientosVendidosPorTipoEnRutas = async (rutaIds: number[]) => {
+  const vendidos: Record<number, Record<TipoServicio, number>> = {}
+  if (!rutaIds.length) return vendidos
+
+  const { data: ventas, error: ventasError } = await supabase
+    .from('Ventas')
+    .select('Id, RutaId')
+    .in('RutaId', rutaIds)
+
+  if (ventasError) {
+    throw new Error(ventasError.message)
+  }
+
+  const ventaRutaMap = new Map<number, number>()
+  for (const venta of ventas || []) {
+    const ventaId = Number(getFieldValue(venta, 'Id') ?? getFieldValue(venta, 'id'))
+    const rutaId = Number(getFieldValue(venta, 'RutaId') ?? getFieldValue(venta, 'rutaid'))
+    if (ventaId && rutaId) {
+      ventaRutaMap.set(ventaId, rutaId)
+      vendidos[rutaId] = vendidos[rutaId] ?? { NORMAL: 0, VIP: 0, EXECUTIVO: 0 }
+    }
+  }
+
+  const ventaIds = Array.from(ventaRutaMap.keys())
+  if (!ventaIds.length) return vendidos
+
+  const { data: boletos, error: boletosError } = await supabase
+    .from('Boletos')
+    .select('VentaId, AsientoId')
+    .in('VentaId', ventaIds)
+
+  if (boletosError) {
+    throw new Error(boletosError.message)
+  }
+
+  const asientoIds = [...new Set((boletos || [])
+    .map((boleto: DbRow) => Number(getFieldValue(boleto, 'AsientoId') ?? getFieldValue(boleto, 'asientoid')))
+    .filter(Boolean))]
+
+  if (!asientoIds.length) return vendidos
+
+  const { data: asientos, error: asientosError } = await supabase
+    .from('Asientos')
+    .select('Id, Tipo')
+    .in('Id', asientoIds)
+
+  if (asientosError) {
+    throw new Error(asientosError.message)
+  }
+
+  const tipoPorAsientoId = new Map<number, TipoServicio>()
+  for (const asiento of asientos || []) {
+    const asientoId = Number(getFieldValue(asiento, 'Id') ?? getFieldValue(asiento, 'id'))
+    const tipo = normalizarTipoServicio(getFieldValue(asiento, 'Tipo') ?? getFieldValue(asiento, 'tipo'))
+    if (asientoId && tipo) {
+      tipoPorAsientoId.set(asientoId, tipo as TipoServicio)
+    }
+  }
+
+  for (const boleto of boletos || []) {
+    const ventaId = Number(getFieldValue(boleto, 'VentaId') ?? getFieldValue(boleto, 'ventaid'))
+    const asientoId = Number(getFieldValue(boleto, 'AsientoId') ?? getFieldValue(boleto, 'asientoid'))
+    const rutaId = ventaRutaMap.get(ventaId)
+    const tipo = tipoPorAsientoId.get(asientoId)
+
+    if (!rutaId || !tipo) continue
+    vendidos[rutaId] = vendidos[rutaId] ?? { NORMAL: 0, VIP: 0, EXECUTIVO: 0 }
+    vendidos[rutaId][tipo] = (vendidos[rutaId][tipo] ?? 0) + 1
+  }
+
+  return vendidos
+}
+
 const cargarRutas = async () => {
   loading.value = true
   error.value = ''
 
   try {
+    if (filtros.fecha < fechaMinima) {
+      throw new Error('Solo puedes buscar rutas desde hoy en adelante.')
+    }
+
     const { data: rutasData, error: rutasError } = await supabase
       .from('Rutas')
       .select('Id, FrecuenciaId, BusId, Fecha')
-      .eq('Fecha', filtros.fecha)
+      .gte('Fecha', filtros.fecha)
       .order('Id', { ascending: true })
 
     if (rutasError) {
@@ -138,7 +373,7 @@ const cargarRutas = async () => {
     const frecuenciaIds = [...new Set(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'FrecuenciaId') ?? getFieldValue(fila, 'frecuenciaid'))))].filter(Boolean)
     const busIds = [...new Set(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'BusId') ?? getFieldValue(fila, 'busid'))))].filter(Boolean)
 
-    const [frecuenciasResp, busesResp, cooperativasResp, preciosBaseResp, libresResp] = await Promise.all([
+    const [frecuenciasResp, busesResp, cooperativasResp, configuracionesResp, preciosBaseResp, libresResp, vendidosPorTipoResp] = await Promise.all([
       frecuenciaIds.length
         ? supabase.from('Frecuencias').select('Id, CiudadOrigen, CiudadDestino, HoraSalida, CooperativaId').in('Id', frecuenciaIds)
         : Promise.resolve({ data: [], error: null } as any),
@@ -146,12 +381,17 @@ const cargarRutas = async () => {
         ? supabase.from('Buses').select('Id, Placa, TotalAsientos').in('Id', busIds)
         : Promise.resolve({ data: [], error: null } as any),
       Promise.resolve(null),
+      busIds.length
+        ? supabase.from('ConfiguracionesAsientos').select('BusId, NombreTipo, Tipo, Cantidad, PrecioBase').in('BusId', busIds)
+        : Promise.resolve({ data: [], error: null } as any),
       cargarPrecioBasePorBus(busIds),
-      cargarAsientosLibresPorRuta(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id')))).catch(err => { throw err })
+      cargarAsientosLibresPorRuta(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id')))).catch(err => { throw err }),
+      cargarAsientosVendidosPorTipoEnRutas(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id')))).catch(err => { throw err })
     ])
 
     const frecuenciasData = frecuenciasResp.data || []
     const busesData = busesResp.data || []
+    const configuracionesData = configuracionesResp.data || []
     const coopIds = [...new Set(frecuenciasData.map((fila: DbRow) => Number(getFieldValue(fila, 'CooperativaId') ?? getFieldValue(fila, 'cooperativaid'))))].filter(Boolean)
 
     const cooperativasQuery = coopIds.length
@@ -174,6 +414,25 @@ const cargarRutas = async () => {
       busesPorId.set(id, fila)
     }
 
+    const configuracionesAgrupadas = configuracionesData.reduce((acc: Record<number, ConfiguracionAsientoDisponible[]>, fila: DbRow) => {
+      const busId = Number(getFieldValue(fila, 'BusId') ?? getFieldValue(fila, 'busid'))
+      const tipo = normalizarTipoServicio(getFieldValue(fila, 'Tipo') ?? getFieldValue(fila, 'tipo') ?? getFieldValue(fila, 'NombreTipo'))
+      if (!busId || !tipo) return acc
+
+      const lista = acc[busId] ?? []
+      lista.push({
+        tipo,
+        nombre: String(getFieldValue(fila, 'NombreTipo') ?? etiquetaTipoServicio(tipo)),
+        precioBase: Number(getFieldValue(fila, 'PrecioBase') ?? getFieldValue(fila, 'preciobase') ?? 0),
+        cantidad: Number(getFieldValue(fila, 'Cantidad') ?? getFieldValue(fila, 'cantidad') ?? 0),
+      })
+      acc[busId] = lista
+      return acc
+    }, {})
+
+    configuracionesPorBus.value = configuracionesAgrupadas
+    asientosVendidosPorRutaYTipo.value = vendidosPorTipoResp
+
     const cooperativasPorId = new Map<number, DbRow>()
     for (const fila of (cooperativasQuery as any).data || []) {
       const id = Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id'))
@@ -188,8 +447,15 @@ const cargarRutas = async () => {
       const bus = busesPorId.get(busId) || null
       const cooperativaId = Number(getFieldValue(frecuencia, 'CooperativaId') ?? getFieldValue(frecuencia, 'cooperativaid') ?? 0)
       const cooperativa = cooperativasPorId.get(cooperativaId) || null
-      const totalAsientos = Number(getFieldValue(bus, 'TotalAsientos') ?? getFieldValue(bus, 'totalasientos') ?? 0)
+      const totalAsientosConfigurados = (configuracionesAgrupadas[busId] ?? []).reduce((suma, config) => suma + Number(config.cantidad ?? 0), 0)
+      const totalAsientos = totalAsientosConfigurados > 0
+        ? totalAsientosConfigurados
+        : Number(getFieldValue(bus, 'TotalAsientos') ?? getFieldValue(bus, 'totalasientos') ?? 0)
       const vendidos = libresResp.get(id) ?? 0
+      const precioBase = (configuracionesPorBus.value[busId] ?? []).reduce((min, config) => {
+        if (!min) return config.precioBase
+        return config.precioBase > 0 && config.precioBase < min ? config.precioBase : min
+      }, 0)
 
       return {
         id,
@@ -199,11 +465,11 @@ const cargarRutas = async () => {
         destino: String(getFieldValue(frecuencia, 'CiudadDestino') ?? ''),
         hora: String(getFieldValue(frecuencia, 'HoraSalida') ?? '').slice(0, 5),
         fecha: String(getFieldValue(fila, 'Fecha') ?? ''),
-        cooperativa: String(getFieldValue(cooperativa, 'Nombre') ?? ''),
-        precioBase: preciosBaseResp.get(busId) ?? 0,
+        cooperativa: String(getFieldValue(cooperativa, 'Nombre') ?? 'N/D'),
+        precioBase: preciosBaseResp.get(busId) ?? precioBase,
         asientosLibres: Math.max(totalAsientos - vendidos, 0),
         totalAsientos,
-        busPlaca: String(getFieldValue(bus, 'Placa') ?? ''),
+        busPlaca: String(getFieldValue(bus, 'Placa') ?? 'N/D'),
       }
     }).filter((ruta) =>
       ruta.id > 0 &&
@@ -213,9 +479,6 @@ const cargarRutas = async () => {
       isValidText(ruta.destino) &&
       isValidText(ruta.hora) &&
       isValidText(ruta.fecha) &&
-      isValidText(ruta.cooperativa) &&
-      isValidText(ruta.busPlaca) &&
-      ruta.precioBase > 0 &&
       ruta.totalAsientos > 0
     )
   } catch (err: any) {
@@ -231,9 +494,30 @@ const rutaSeleccionada = ref<RutaDisponible | null>(null)
 const asientosSeleccionados = ref<string[]>([])
 const asientosOcupados = ref<string[]>([])
 
+const cargarAsientosDelBus = async (busId: number) => {
+  const { data: asientos, error: asientosError } = await supabase
+    .from('Asientos')
+    .select('Id, NumeroAsiento, Tipo')
+    .eq('BusId', busId)
+
+  if (asientosError) throw new Error(asientosError.message)
+
+  asientosDelBus.value = (asientos || [])
+    .map((fila: DbRow) => ({
+      id: Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id')),
+      numero: String(getFieldValue(fila, 'NumeroAsiento') ?? getFieldValue(fila, 'numeroasiento') ?? ''),
+      tipo: normalizarTipoServicio(getFieldValue(fila, 'Tipo') ?? getFieldValue(fila, 'tipo')) as TipoServicio,
+    }))
+    .filter((asiento) => asiento.id > 0 && isValidText(asiento.numero) && isValidText(asiento.tipo))
+}
+
 const cargarAsientosOcupados = async (rutaId: number) => {
   loadingAsientos.value = true
   try {
+    asientosOcupadosPorTipo.NORMAL = []
+    asientosOcupadosPorTipo.VIP = []
+    asientosOcupadosPorTipo.EXECUTIVO = []
+
     const { data: ventas, error: ventasError } = await supabase
       .from('Ventas')
       .select('Id')
@@ -262,25 +546,40 @@ const cargarAsientosOcupados = async (rutaId: number) => {
 
     const { data: asientos, error: asientosError } = await supabase
       .from('Asientos')
-      .select('Id, NumeroAsiento')
+      .select('Id, NumeroAsiento, Tipo')
       .in('Id', asientoIds)
 
     if (asientosError) throw new Error(asientosError.message)
 
-    asientosOcupados.value = [...new Set((asientos || []).map((fila: DbRow) => String(getFieldValue(fila, 'NumeroAsiento') ?? getFieldValue(fila, 'numeroasiento') ?? '')))].filter(Boolean)
+    const ocupados = (asientos || []).map((fila: DbRow) => ({
+      numero: String(getFieldValue(fila, 'NumeroAsiento') ?? getFieldValue(fila, 'numeroasiento') ?? '').trim(),
+      tipo: normalizarTipoServicio(getFieldValue(fila, 'Tipo') ?? getFieldValue(fila, 'tipo')),
+    })).filter(item => isValidText(item.numero) && item.tipo)
+
+    asientosOcupados.value = [...new Set(ocupados.map(item => item.numero))]
+    for (const item of ocupados) {
+      const tipo = item.tipo as TipoServicio
+      if (!asientosOcupadosPorTipo[tipo].includes(item.numero)) {
+        asientosOcupadosPorTipo[tipo].push(item.numero)
+      }
+    }
   } finally {
     loadingAsientos.value = false
   }
 }
 
+const seatsAlreadyUsedByType = (tipo: TipoServicio | '') => {
+  if (!tipo) return new Set<string>()
+  return new Set(asientosOcupadosPorTipo[tipo].map(n => n.toString().padStart(2, '0')))
+}
+
 // Map real de asientos según capacidad del bus y boletos emitidos
 const asientosLayout = computed(() => {
-  if (!rutaSeleccionada.value) return []
-  const total = Math.max(rutaSeleccionada.value.totalAsientos, 0)
-  const ocupados = new Set(asientosOcupados.value.map(n => n.toString().padStart(2, '0')))
-  return Array.from({ length: total }, (_, i) => ({
-    numero: (i + 1).toString().padStart(2, '0'),
-    ocupado: ocupados.has((i + 1).toString().padStart(2, '0')),
+  if (!rutaSeleccionada.value || !tipoServicioSeleccionado.value) return []
+  const ocupados = seatsAlreadyUsedByType(tipoServicioSeleccionado.value)
+  return asientosPorTipoSeleccionado.value.map((asiento) => ({
+    numero: asiento.numero.toString().padStart(2, '0'),
+    ocupado: ocupados.has(asiento.numero.toString().padStart(2, '0')),
   }))
 })
 
@@ -320,6 +619,14 @@ const authStore = useAuthStore()
 
 async function confirmarCompra() {
   if (!rutaSeleccionada.value || asientosSeleccionados.value.length === 0) return
+  if (!tipoServicioSeleccionado.value) {
+    error.value = 'Selecciona un tipo de asiento antes de confirmar la compra.'
+    return
+  }
+  if (precioSeleccionado.value <= 0) {
+    error.value = 'El tipo de asiento seleccionado no tiene un precio configurado.'
+    return
+  }
   if (!captura.value) {
     alert('Por favor adjunta la captura del pago para continuar.')
     return
@@ -362,7 +669,7 @@ async function confirmarCompra() {
 
     // 3) Preparar inserts para Boletos
     const cedulaPasajero = String(authStore.user?.cedula ?? '')
-    const precio = rutaSeleccionada.value.precioBase
+    const precio = precioSeleccionado.value
     const boletosInsert: any[] = []
     for (const asientoNumero of asientosSeleccionados.value) {
       const key = asientoNumero.toString().padStart(2, '0')
@@ -412,6 +719,12 @@ function nuevaBusqueda() {
   compraConfirmada.value = null
   rutaSeleccionada.value = null
   asientosSeleccionados.value = []
+  asientosOcupados.value = []
+  asientosOcupadosPorTipo.NORMAL = []
+  asientosOcupadosPorTipo.VIP = []
+  asientosOcupadosPorTipo.EXECUTIVO = []
+  asientosDelBus.value = []
+  tipoServicioSeleccionado.value = ''
   captura.value = null
   referenciaPago.value = ''
   mostrarPago.value = false
@@ -422,10 +735,30 @@ const formatoDuracion = (min: number) => {
   return h ? `${h}h ${m}m` : `${m}m`
 }
 
-const seleccionarRuta = async (ruta: RutaDisponible) => {
+const seleccionarRuta = async (ruta: RutaDisponible, tipoServicio: TipoServicio | '') => {
+  if (!tipoServicio) {
+    error.value = 'Selecciona un tipo de asiento para continuar.'
+    return
+  }
+
+  const tiposDisponibles = tiposDisponiblesPorBus(ruta.busId)
+  if (!tiposDisponibles.some(tipo => tipo.tipo === tipoServicio)) {
+    error.value = 'El tipo de asiento seleccionado no está disponible para este bus.'
+    return
+  }
+
+  if (asientosLibresPorRutaYTipo(ruta, tipoServicio) <= 0) {
+    error.value = 'El tipo de asiento seleccionado ya no tiene asientos disponibles.'
+    return
+  }
+
+  error.value = ''
   rutaSeleccionada.value = ruta
+  tipoServicioSeleccionado.value = tipoServicio
   asientosSeleccionados.value = []
   asientosOcupados.value = []
+  asientosDelBus.value = []
+  await cargarAsientosDelBus(ruta.busId)
   await cargarAsientosOcupados(ruta.id)
 }
 
@@ -434,6 +767,8 @@ const volverABuscar = () => {
   rutaSeleccionada.value = null
   asientosSeleccionados.value = []
   asientosOcupados.value = []
+  asientosDelBus.value = []
+  tipoServicioSeleccionado.value = ''
   captura.value = null
   referenciaPago.value = ''
   mostrarPago.value = false
@@ -447,6 +782,11 @@ watch(() => filtros.fecha, () => {
   rutaSeleccionada.value = null
   asientosSeleccionados.value = []
   asientosOcupados.value = []
+  asientosOcupadosPorTipo.NORMAL = []
+  asientosOcupadosPorTipo.VIP = []
+  asientosOcupadosPorTipo.EXECUTIVO = []
+  asientosDelBus.value = []
+  tipoServicioSeleccionado.value = ''
   void cargarRutas()
 })
 </script>
@@ -497,18 +837,34 @@ watch(() => filtros.fecha, () => {
         <div class="grid gap-4 sm:grid-cols-3">
           <div class="rounded-2xl bg-slate-50 p-3">
             <label class="text-xs font-bold text-slate-700">Origen</label>
-            <input v-model="filtros.origen" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
+            <input v-model="filtros.origen" minlength="3" placeholder="Ej. Quito"
+              class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
+            <p v-if="filtros.origen.trim() && filtros.origen.trim().length < 3" class="mt-1 text-xs font-medium text-amber-600">
+              Escribe al menos 3 caracteres para filtrar por origen.
+            </p>
           </div>
           <div class="rounded-2xl bg-slate-50 p-3">
             <label class="text-xs font-bold text-slate-700">Destino</label>
-            <input v-model="filtros.destino" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
+            <input v-model="filtros.destino" minlength="3" placeholder="Ej. Guayaquil"
+              class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
+            <p v-if="filtros.destino.trim() && filtros.destino.trim().length < 3" class="mt-1 text-xs font-medium text-amber-600">
+              Escribe al menos 3 caracteres para filtrar por destino.
+            </p>
           </div>
           <div class="rounded-2xl bg-slate-50 p-3">
             <label class="text-xs font-bold text-slate-700">Fecha</label>
-            <input v-model="filtros.fecha" type="date" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
+            <input v-model="filtros.fecha" type="date" :min="fechaMinima"
+              class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
+            <p class="mt-1 text-xs font-medium text-slate-500">
+              Solo se permiten rutas desde hoy en adelante.
+            </p>
           </div>
         </div>
       </section>
+
+      <div v-if="errorFiltros" class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700">
+        {{ errorFiltros }}
+      </div>
 
       <!-- ===== Resultados ===== -->
       <section v-if="!rutaSeleccionada" class="grid gap-3">
@@ -520,13 +876,38 @@ watch(() => filtros.fecha, () => {
               <p class="text-xl font-black text-slate-900">{{ r.origen }} → {{ r.destino }}</p>
               <p class="text-sm text-slate-500">{{ r.fecha }} · Sale {{ r.hora }} · Bus {{ r.busPlaca }}</p>
             </div>
-            <div class="text-right">
-              <p class="text-2xl font-black text-blue-700">${{ r.precioBase.toFixed(2) }}</p>
+            <div class="min-w-[220px] text-right">
+              <label class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Tipo de asiento</label>
+              <select
+                v-model="tipoSeleccionadoPorRuta[r.id]"
+                class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+                :disabled="tiposDisponiblesParaRuta(r).length === 0"
+              >
+                <option value="">Selecciona una opción</option>
+                <option v-for="tipo in tiposDisponiblesParaRuta(r)" :key="tipo.tipo" :value="tipo.tipo">
+                  {{ tipo.nombre }} · ${{ tipo.precioBase.toFixed(2) }}
+                </option>
+              </select>
+              <p v-if="tipoSeleccionadoPorRuta[r.id]" class="text-2xl font-black text-blue-700 mt-2">
+                ${{ precioPorTipoYBus(r.busId, tipoSeleccionadoPorRuta[r.id]).toFixed(2) }}
+              </p>
+              <p v-else class="text-xs font-medium text-slate-500 mt-2">
+                Selecciona un tipo para ver el costo
+              </p>
+              <p v-if="tipoSeleccionadoPorRuta[r.id]" class="text-xs font-bold mt-2" :class="asientosLibresPorRutaYTipo(r, tipoSeleccionadoPorRuta[r.id]) > 0 ? 'text-emerald-600' : 'text-red-600'">
+                {{ asientosLibresPorRutaYTipo(r, tipoSeleccionadoPorRuta[r.id]) > 0 ? asientosLibresPorRutaYTipo(r, tipoSeleccionadoPorRuta[r.id]) + ' asientos libres para este tipo' : 'No hay asientos disponibles para este tipo' }}
+              </p>
+              <p v-if="tiposDisponiblesPorBus(r.busId).length === 0" class="text-xs font-medium text-amber-600 mt-2">
+                Este bus aún no tiene tipos de asiento configurados.
+              </p>
+              <p v-else-if="tiposDisponiblesParaRuta(r).length === 0" class="text-xs font-medium text-rose-600 mt-2">
+                Los tipos de este bus están agotados para esta ruta.
+              </p>
               <p class="text-xs font-bold" :class="r.asientosLibres > 10 ? 'text-emerald-600' : r.asientosLibres > 0 ? 'text-amber-600' : 'text-red-600'">
                 {{ r.asientosLibres > 0 ? r.asientosLibres + ' asientos libres' : 'Lleno' }}
               </p>
             </div>
-            <button :disabled="r.asientosLibres === 0 || loadingAsientos" @click="seleccionarRuta(r)"
+            <button :disabled="!tipoSeleccionadoPorRuta[r.id] || r.asientosLibres === 0 || asientosLibresPorRutaYTipo(r, tipoSeleccionadoPorRuta[r.id]) === 0 || loadingAsientos" @click="seleccionarRuta(r, tipoSeleccionadoPorRuta[r.id])"
               class="rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-xl shadow-blue-100 hover:bg-blue-700 disabled:opacity-50">
               Elegir asientos
             </button>
@@ -543,13 +924,25 @@ watch(() => filtros.fecha, () => {
           <div>
             <p class="text-xs font-bold uppercase text-blue-600 tracking-wider">Ruta elegida</p>
             <p class="font-black text-slate-900">{{ rutaSeleccionada.origen }} → {{ rutaSeleccionada.destino }} · {{ rutaSeleccionada.fecha }} · {{ rutaSeleccionada.hora }}</p>
+            <p class="text-sm font-bold text-slate-600 mt-1">
+              Tipo: {{ etiquetaTipoServicio(tipoServicioSeleccionado) }} · ${{ precioSeleccionado.toFixed(2) }}
+            </p>
+            <p class="text-sm font-bold text-slate-600 mt-1">
+              Asientos libres para este tipo: {{ asientosLibresDelTipoSeleccionado }}
+            </p>
           </div>
-          <button @click="rutaSeleccionada = null; asientosSeleccionados = []; asientosOcupados = []" class="text-sm font-bold text-blue-700 underline underline-offset-4">Cambiar ruta</button>
+          <button @click="volverABuscar" class="text-sm font-bold text-blue-700 underline underline-offset-4">Cambiar ruta</button>
         </div>
 
         <div class="grid gap-6 lg:grid-cols-[1fr_360px]">
           <div class="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur">
             <h3 class="text-lg font-black text-slate-900 mb-4">Selecciona tus asientos</h3>
+            <p v-if="!tipoServicioSeleccionado" class="mb-3 text-sm font-medium text-amber-600">
+              Debes seleccionar un tipo de asiento antes de escoger un lugar.
+            </p>
+            <p v-else-if="asientosLayout.length === 0" class="mb-3 text-sm font-medium text-amber-600">
+              No hay asientos disponibles para este tipo en el bus seleccionado.
+            </p>
             <p v-if="loadingAsientos" class="mb-3 text-sm text-slate-500">Cargando asientos reales ocupados...</p>
             <div class="flex items-center gap-4 text-xs mb-4">
               <div class="flex items-center gap-1"><span class="w-4 h-4 rounded bg-white border-2 border-slate-300"></span>Libre</div>
@@ -558,19 +951,38 @@ watch(() => filtros.fecha, () => {
             </div>
             <div class="rounded-xl bg-slate-100 p-4 max-w-md mx-auto">
               <div class="text-center text-xs text-slate-500 mb-3 pb-2 border-b border-slate-200">⬆ Frente del bus</div>
-              <div class="grid grid-cols-5 gap-2">
-                <template v-for="(a, idx) in asientosLayout" :key="a.numero">
-                  <button @click="toggleAsiento(a)" :disabled="a.ocupado"
-                    class="aspect-square rounded-lg text-xs font-bold transition-all"
-                    :class="a.ocupado
-                      ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                      : asientosSeleccionados.includes(a.numero)
-                        ? 'bg-blue-600 text-white shadow-md'
-                        : 'bg-white border-2 border-slate-300 hover:border-blue-500'">
-                    {{ a.numero }}
-                  </button>
-                  <div v-if="idx % 4 === 1" class="aspect-square"></div>
-                </template>
+              <div class="space-y-4">
+                <section v-for="tipo in TIPOS_SERVICIO" :key="tipo.value" class="rounded-xl border p-3" :class="tipo.value === tipoServicioSeleccionado ? 'border-blue-300 bg-blue-50' : 'border-slate-200 bg-slate-50'">
+                  <div class="flex items-center justify-between mb-3">
+                    <p class="text-xs font-black uppercase tracking-wider" :class="tipo.value === tipoServicioSeleccionado ? 'text-blue-700' : 'text-slate-500'">
+                      {{ tipo.label }}
+                    </p>
+                    <p class="text-[10px] font-bold" :class="tipo.value === tipoServicioSeleccionado ? 'text-blue-600' : 'text-slate-400'">
+                      {{ tipo.value === tipoServicioSeleccionado ? 'Sección activa' : 'Bloqueada' }}
+                    </p>
+                  </div>
+                  <div v-if="asientosPorTipoEnBus[tipo.value].length === 0" class="text-xs text-slate-400">
+                    No hay asientos registrados para este tipo.
+                  </div>
+                  <div v-else class="grid grid-cols-5 gap-2">
+                    <template v-for="(a, idx) in asientosPorTipoEnBus[tipo.value]" :key="a.id">
+                      <button
+                        @click="tipo.value === tipoServicioSeleccionado && toggleAsiento({ numero: a.numero, ocupado: seatsAlreadyUsedByType(tipo.value).has(a.numero.toString().padStart(2, '0')) })"
+                        :disabled="tipo.value !== tipoServicioSeleccionado || seatsAlreadyUsedByType(tipo.value).has(a.numero.toString().padStart(2, '0'))"
+                        class="aspect-square rounded-lg text-xs font-bold transition-all"
+                        :class="tipo.value !== tipoServicioSeleccionado
+                          ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-70'
+                          : seatsAlreadyUsedByType(tipo.value).has(a.numero.toString().padStart(2, '0'))
+                            ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                            : asientosSeleccionados.includes(a.numero)
+                              ? 'bg-blue-600 text-white shadow-md'
+                              : 'bg-white border-2 border-slate-300 hover:border-blue-500'">
+                        {{ a.numero }}
+                      </button>
+                      <div v-if="idx % 4 === 1" class="aspect-square"></div>
+                    </template>
+                  </div>
+                </section>
               </div>
             </div>
           </div>
@@ -578,13 +990,16 @@ watch(() => filtros.fecha, () => {
           <aside class="space-y-4">
             <div class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
               <h3 class="font-black text-slate-900 mb-3">Resumen</h3>
+              <p class="text-sm text-slate-600 mb-1">Tipo: <strong>{{ etiquetaTipoServicio(tipoServicioSeleccionado) }}</strong></p>
+              <p class="text-sm text-slate-600 mb-1">Precio unitario: <strong>${{ precioSeleccionado.toFixed(2) }}</strong></p>
+              <p class="text-sm text-slate-600 mb-1">Asientos libres para este tipo: <strong>{{ asientosLibresDelTipoSeleccionado }}</strong></p>
               <p class="text-sm text-slate-600 mb-1">Asientos: <strong>{{ asientosSeleccionados.join(', ') || '—' }}</strong></p>
               <p class="text-sm text-slate-600 mb-3">Cantidad: <strong>{{ asientosSeleccionados.length }}</strong></p>
               <div class="border-t border-slate-200 pt-3">
-                <div class="flex justify-between text-sm"><span>Subtotal</span><span class="font-bold">${{ (rutaSeleccionada.precioBase * asientosSeleccionados.length).toFixed(2) }}</span></div>
-                <div class="flex justify-between text-lg mt-1"><span class="font-bold">Total</span><span class="font-black text-blue-700">${{ (rutaSeleccionada.precioBase * asientosSeleccionados.length).toFixed(2) }}</span></div>
+                <div class="flex justify-between text-sm"><span>Subtotal</span><span class="font-bold">${{ (precioSeleccionado * asientosSeleccionados.length).toFixed(2) }}</span></div>
+                <div class="flex justify-between text-lg mt-1"><span class="font-bold">Total</span><span class="font-black text-blue-700">${{ (precioSeleccionado * asientosSeleccionados.length).toFixed(2) }}</span></div>
               </div>
-              <button :disabled="asientosSeleccionados.length === 0" @click="mostrarPago = true"
+              <button :disabled="asientosSeleccionados.length === 0 || !tipoServicioSeleccionado || precioSeleccionado <= 0" @click="mostrarPago = true"
                 class="mt-4 w-full rounded-2xl bg-blue-600 py-3 font-black text-white shadow-xl shadow-blue-100 hover:bg-blue-700 disabled:opacity-50">
                 Ir a pagar
               </button>

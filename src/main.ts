@@ -70,14 +70,9 @@ router.beforeEach(async (to) => {
     await authStore.initializeAuth()
   }
 
-  // Si está autenticado y trata de ir al login O a la raíz "/",
-  // lo enviamos automáticamente a su dashboard específico
-  if ((to.path === '/login' || to.path === '/') && authStore.isAuthenticated) {
-    const r = (authStore.role || 'cliente').toLowerCase().trim()
-    if (ADMIN.includes(r)) return { path: '/admin/buses' }
-    if (OFICINISTA.includes(r)) return { path: '/venta' }
-    if (CHOFER.includes(r)) return { path: '/abordaje' }
-    return { path: '/buscar' }
+  // Si ya está autenticado, salir del login lo regresa al dashboard general.
+  if (to.path === '/login' && authStore.isAuthenticated) {
+    return { path: '/' }
   }
   if (!to.meta.public && !authStore.isAuthenticated) {
     return { path: '/login' }
