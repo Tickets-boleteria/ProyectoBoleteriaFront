@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import './index.css'
 import { createRouter, createWebHistory } from 'vue-router'
 import { createPinia } from 'pinia'
+
 import App from './App.vue'
 import Login from './Presentation/Views/Login.vue'
 import Dashboard from './Presentation/Views/Dashboard.vue'
@@ -17,80 +18,177 @@ import ValidarQR from './Presentation/Views/chofer/ValidarQR.vue'
 import Reportes from './Presentation/Views/reportes/Reportes.vue'
 import { useAuthStore } from './Presentation/Store/authStore'
 
-const ADMIN = ['administrador', 'admin']
+const ADMIN = ['admin', 'administrador']
 const OFICINISTA = ['oficinista']
 const CHOFER = ['chofer']
-// Mantenemos 'usuario final' por compatibilidad con cuentas antiguas creadas previamente
 const CLIENTE = ['cliente', 'usuario final']
+
+const TODOS = [
+  ...ADMIN,
+  ...OFICINISTA,
+  ...CHOFER,
+  ...CLIENTE,
+]
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/login', name: 'Login', component: Login, meta: { public: true } },
+    {
+      path: '/login',
+      name: 'Login',
+      component: Login,
+      meta: { public: true },
+    },
 
-    { path: '/', name: 'Dashboard', component: Dashboard },
+    {
+      path: '/',
+      name: 'Dashboard',
+      component: Dashboard,
+      meta: { roles: TODOS },
+    },
 
-    // Administración
-    { path: '/admin/usuarios',    name: 'Usuarios',         component: Usuarios,        meta: { roles: ADMIN } },
-    { path: '/admin/buses',       name: 'BusesAdmin',       component: BusesAdmin,      meta: { roles: ADMIN } },
-    { path: '/admin/frecuencias', name: 'FrecuenciasAdmin', component: FrecuenciasAdmin,meta: { roles: ADMIN } },
-    { path: '/admin/rutas',       name: 'RutasAdmin',       component: RutasAdmin,      meta: { roles: ADMIN } },
-    { path: '/admin/hoja-ruta',   name: 'HojaRutaAdmin',    component: HojaRutaAdmin,   meta: { roles: [...ADMIN, ...OFICINISTA] } },
+    // =========================
+    // ADMINISTRADOR
+    // =========================
+    {
+      path: '/admin/usuarios',
+      name: 'Usuarios',
+      component: Usuarios,
+      meta: { roles: ADMIN },
+    },
+    {
+      path: '/admin/buses',
+      name: 'BusesAdmin',
+      component: BusesAdmin,
+      meta: { roles: ADMIN },
+    },
+    {
+      path: '/admin/frecuencias',
+      name: 'FrecuenciasAdmin',
+      component: FrecuenciasAdmin,
+      meta: { roles: ADMIN },
+    },
+    {
+      path: '/admin/hoja-ruta',
+      name: 'HojaRutaAdmin',
+      component: HojaRutaAdmin,
+      meta: { roles: ADMIN },
+    },
 
-    // Ventas (Oficinista y Chofer según requerimientos)
-    { path: '/venta',             name: 'VentaBoletos',     component: VentaBoletos,    meta: { roles: [...ADMIN, ...OFICINISTA, ...CHOFER] } },
+    // =========================
+    // RUTAS
+    // Administrador y oficinista
+    // =========================
+    {
+      path: '/admin/rutas',
+      name: 'RutasAdmin',
+      component: RutasAdmin,
+      meta: { roles: [...ADMIN, ...OFICINISTA] },
+    },
 
-    // Cliente (Flujo estrictamente aislado para evitar cruces con la interfaz de empleados)
-    { path: '/buscar',            name: 'BuscarRutas',      component: BuscarRutas,     meta: { roles: CLIENTE } },
-    { path: '/mis-boletos',       name: 'MisBoletos',       component: MisBoletos,      meta: { roles: CLIENTE } },
+    // =========================
+    // VENTA
+    // Usuario final, oficinista, chofer y administrador
+    // =========================
+    {
+      path: '/venta',
+      name: 'VentaBoletos',
+      component: VentaBoletos,
+      meta: { roles: [...CLIENTE, ...OFICINISTA, ...CHOFER, ...ADMIN] },
+    },
 
-    // Chofer
-    { path: '/abordaje',          name: 'ValidarQR',        component: ValidarQR,       meta: { roles: [...CHOFER, ...ADMIN] } },
+    // =========================
+    // CLIENTE / USUARIO FINAL
+    // =========================
+    {
+      path: '/buscar',
+      name: 'BuscarRutas',
+      component: BuscarRutas,
+      meta: { roles: CLIENTE },
+    },
+    {
+      path: '/mis-boletos',
+      name: 'MisBoletos',
+      component: MisBoletos,
+      meta: { roles: CLIENTE },
+    },
 
-    // Reportes
-    { path: '/reportes',          name: 'Reportes',         component: Reportes,        meta: { roles: ADMIN } },
+    // =========================
+    // ABORDAJE
+    // Oficinista, chofer y administrador
+    // =========================
+    {
+      path: '/abordaje',
+      name: 'ValidarQR',
+      component: ValidarQR,
+      meta: { roles: [...OFICINISTA, ...CHOFER, ...ADMIN] },
+    },
 
-    { path: '/:pathMatch(.*)*', redirect: '/' },
+    // =========================
+    // REPORTES
+    // Oficinista y administrador
+    // =========================
+    {
+      path: '/reportes',
+      name: 'Reportes',
+      component: Reportes,
+      meta: { roles: [...OFICINISTA, ...ADMIN] },
+    },
+
+    {
+      path: '/:pathMatch(.*)*',
+      redirect: '/',
+    },
   ],
 })
 
 const pinia = createPinia()
 const app = createApp(App)
+
 app.use(pinia)
 app.use(router)
 
-// Suscribir a cambios de sesión UNA sola vez, antes de montar.
 const authStore = useAuthStore(pinia)
-//authStore.subscribeToAuthChanges()
+
+function normalizeRole(value: string | null | undefined) {
+  const normalized = (value || '').toLowerCase().trim()
+
+  if (normalized === 'administrador') return 'admin'
+  if (normalized === 'usuario final') return 'cliente'
+
+  return normalized
+}
 
 router.beforeEach(async (to) => {
-  // Esperar a que termine la PRIMERA rehidratación de sesión.
-  // Sin esto, al recargar el rol llega null y se pierden los botones.
   if (!authStore.ready) {
     await authStore.initializeAuth()
   }
 
-  // Si ya está autenticado, salir del login lo regresa al dashboard general.
   if (to.path === '/login' && authStore.isAuthenticated) {
     return { path: '/' }
   }
+
   if (!to.meta.public && !authStore.isAuthenticated) {
     return { path: '/login' }
   }
 
-  const allowedRoles: string[] | undefined = (to.meta as any).roles?.map((r: string) => r.toLowerCase().trim())
-  if (!allowedRoles || allowedRoles.length === 0) return true
+  const allowedRoles: string[] | undefined = (to.meta as any).roles
 
-  const userRole = (authStore.role || '').toLowerCase().trim()
+  if (!allowedRoles || allowedRoles.length === 0) {
+    return true
+  }
 
-  // Si el usuario tiene el rol permitido, pasa. Si no, lo devolvemos a la raíz,
-  // lo cual activará la regla de arriba y lo auto-redigirá a su lugar seguro.
-  if (userRole && allowedRoles.includes(userRole)) return true
+  const userRole = normalizeRole(authStore.role)
+
+  const normalizedAllowedRoles = allowedRoles.map(role => normalizeRole(role))
+
+  if (userRole && normalizedAllowedRoles.includes(userRole)) {
+    return true
+  }
+
   return { path: '/' }
 })
 
-// Esperamos a que el router resuelva la sesión de Supabase (las llamadas async)
-// ANTES de dibujar la aplicación de Vue. Esto elimina el parpadeo y la carga vacía.
 router.isReady().then(() => {
   app.mount('#app')
 })

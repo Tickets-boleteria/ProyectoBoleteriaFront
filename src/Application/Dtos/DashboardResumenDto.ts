@@ -1,5 +1,8 @@
+export type DashboardTipo = 'cliente' | 'cooperativa' | 'chofer'
+
 export interface DashboardContextDto {
   userId: string
+  usuarioTablaId?: number | null
   rol: string
   nombres?: string | null
   cedula?: string | null
@@ -26,10 +29,17 @@ export interface DashboardRouteDto {
 
 export interface DashboardTripDto {
   fecha: string
+  hora?: string
   origen: string
   destino: string
-  cooperativa: string
-  asiento: string
+  cooperativa?: string
+  asiento?: string
+  bus?: string
+  placa?: string
+  estado?: string
+  pasajerosEsperados?: number
+  pasajerosEscaneados?: number
+  pasajerosPendientes?: number
 }
 
 export interface DashboardQuickActionDto {
@@ -40,7 +50,7 @@ export interface DashboardQuickActionDto {
 }
 
 export interface DashboardResumenDto {
-  tipo: 'cooperativa' | 'cliente'
+  tipo: DashboardTipo
   rolMensaje: string
   kpis: DashboardKpiDto[]
   ventasSemana: DashboardChartPointDto[]

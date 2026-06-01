@@ -14,9 +14,11 @@ export function useDashboard() {
 
   const contexto = computed(() => {
     const usuario: any = authStore.user
+
     return {
       userId: usuario?.id ?? '',
-      rol: usuario?.rol || usuario?.role || usuario?.user_metadata?.rol || usuario?.user_metadata?.role || 'Cliente',
+      usuarioTablaId: usuario?.usuarioTablaId ?? null,
+      rol: usuario?.rol || usuario?.role || usuario?.user_metadata?.rol || usuario?.user_metadata?.role || 'cliente',
       nombres: usuario?.nombres || usuario?.user_metadata?.nombres || usuario?.user_metadata?.nombre || '',
       cedula: usuario?.cedula || usuario?.user_metadata?.cedula || '',
       cooperativaId: usuario?.cooperativaId ?? usuario?.user_metadata?.cooperativaId ?? null,
@@ -25,8 +27,10 @@ export function useDashboard() {
 
   const cargar = async () => {
     if (!contexto.value.userId) return
+
     loading.value = true
     error.value = ''
+
     try {
       resumen.value = await dashboardUseCase.ejecutar(contexto.value)
     } catch (err: any) {
@@ -38,9 +42,14 @@ export function useDashboard() {
   }
 
   onMounted(cargar)
-  watch(contexto, () => {
-    void cargar()
-  }, { deep: true })
+
+  watch(
+    contexto,
+    () => {
+      void cargar()
+    },
+    { deep: true }
+  )
 
   return {
     resumen,

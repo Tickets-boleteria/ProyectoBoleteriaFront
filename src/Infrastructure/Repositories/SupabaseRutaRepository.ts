@@ -16,7 +16,7 @@ const getFieldValue = (obj: any, fieldName: string) => {
 };
 
 export class SupabaseRutaRepository implements IRutaRepository {
-  private readonly tabla = 'RutasDiarias'; // Ajustado al estándar de tu BD (PascalCase)
+  private readonly tabla = 'Rutas'; // Ajustado al estándar de tu BD (PascalCase)
 
   /**
    * Crear una nueva ruta diaria (asignar bus a frecuencia en una fecha)
