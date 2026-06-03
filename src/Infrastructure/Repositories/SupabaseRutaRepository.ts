@@ -55,24 +55,84 @@ export class SupabaseRutaRepository implements IRutaRepository {
   }
 
   /**
-   * Verificar si un bus está disponible en una fecha específica
-   * Un bus está disponible si no tiene otra ruta activa/programada para esa fecha
+   * Verificar si un bus está disponible en una fecha específica y horario.
+   * Si se provee frecuenciaId, verifica que el bus no esté asignado a otra ruta en ese mismo horario.
+   * Si se provee rutaActualId, se excluye de la búsqueda para evitar choques con la ruta que se está editando.
    */
-  async verificarBusDisponible(busId: number, fecha: string): Promise<boolean> {
-    const { data, error } = await supabase
-      .from(this.tabla)
-      .select('*')
-      .eq('BusId', busId)
-      .eq('Fecha', fecha)
-      .in('Estado', ['Programada', 'En curso', 'En proceso'])
-      .limit(1);
+  async verificarBusDisponible(busId: number, fecha: string, frecuenciaId?: number, rutaActualId?: number): Promise<boolean> {
+    const estadosActivos = ['Programada', 'Habilitada', 'EnCurso', 'En curso', 'En proceso'];
 
-    if (error) {
-      throw new DomainException(`Error al verificar disponibilidad del bus: ${error.message}`);
+    if (!frecuenciaId) {
+      // Comportamiento legado (verifica todo el día)
+      let query = supabase
+        .from(this.tabla)
+        .select('*')
+        .eq('BusId', busId)
+        .eq('Fecha', fecha)
+        .in('Estado', estadosActivos);
+        
+      if (rutaActualId) {
+        query = query.neq('id', rutaActualId).neq('Id', rutaActualId);
+      }
+
+      const { data, error } = await query.limit(1);
+
+      if (error) {
+        throw new DomainException(`Error al verificar disponibilidad del bus: ${error.message}`);
+      }
+
+      return !data || data.length === 0;
     }
 
-    // Si no hay registros, el bus está disponible
-    return !data || data.length === 0;
+    // Comportamiento nuevo: Validar que el bus no tenga un viaje a la misma hora ese día
+    
+    // 1. Obtener la hora de la frecuencia que queremos asignar
+    const { data: frecData, error: frecError } = await supabase
+      .from('Frecuencias')
+      .select('HoraSalida')
+      .eq('Id', frecuenciaId)
+      .single();
+      
+    if (frecError || !frecData) {
+      throw new DomainException(`Error al obtener la frecuencia para validar horario: ${frecError?.message || 'No encontrada'}`);
+    }
+
+    const horaRequerida = getFieldValue(frecData, 'HoraSalida') || getFieldValue(frecData, 'horasalida');
+
+    // 2. Obtener las rutas de ese bus ese día con sus respectivas horas de salida
+    let query = supabase
+      .from(this.tabla)
+      .select(`
+        Id,
+        Frecuencias!inner(HoraSalida)
+      `)
+      .eq('BusId', busId)
+      .eq('Fecha', fecha)
+      .in('Estado', estadosActivos);
+
+    if (rutaActualId) {
+      query = query.neq('id', rutaActualId).neq('Id', rutaActualId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      throw new DomainException(`Error al verificar disponibilidad del bus por horario: ${error.message}`);
+    }
+
+    // 3. Comprobar si hay choque de horarios
+    if (data && data.length > 0) {
+      for (const ruta of data) {
+        const frecuenciasData = getFieldValue(ruta, 'Frecuencias') || getFieldValue(ruta, 'frecuencias');
+        const horaAsignada = getFieldValue(frecuenciasData, 'HoraSalida') || getFieldValue(frecuenciasData, 'horasalida');
+        
+        if (horaAsignada === horaRequerida) {
+          return false; // El bus ya está ocupado en ese mismo horario
+        }
+      }
+    }
+
+    return true;
   }
 
   /**
