@@ -198,6 +198,19 @@ function puedeAvanzar(estado: EstadoRuta) {
           </select>
         </div>
 
+        <div>
+          <label class="text-xs font-bold text-slate-700">
+            Hoja de ruta (Opcional en creación)
+          </label>
+
+          <input
+            v-model="nuevaRuta.hojaRutaId"
+            type="number"
+            placeholder="Nº Hoja de ruta"
+            class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+          />
+        </div>
+
         <div class="flex items-end">
           <button
             type="submit"

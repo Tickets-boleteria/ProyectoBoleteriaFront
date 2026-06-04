@@ -302,4 +302,25 @@ describe('HabilitarRutaDiaria', () => {
 
     expect(resultado.estado).toBe('Programada');
   });
+
+  /**
+   * TEST 11: Validación - Día de la semana no permitido
+   */
+  it('debe rechazar si la fecha no coincide con los días de operación de la frecuencia', async () => {
+    // 2026-06-04 es Jueves
+    const input: HabilitarRutaInput = {
+      frecuenciaId: 1,
+      busId: 10,
+      fecha: '2026-06-04',
+    };
+
+    const frecuenciaLunesMiercoles = new Frecuencia(1, 'Quito', 'Cuenca', '08:00', true, true);
+    frecuenciaLunesMiercoles.id = 1;
+    frecuenciaLunesMiercoles.diasOperacion = ['Lunes', 'Miércoles'];
+
+    vi.mocked(mockFrecuenciaRepo.obtenerPorId).mockResolvedValue(frecuenciaLunesMiercoles);
+
+    await expect(habilitarRutaDiaria.ejecutar(input)).rejects.toThrow(DomainException);
+    await expect(habilitarRutaDiaria.ejecutar(input)).rejects.toThrow(/no opera los días Jueves/i);
+  });
 });
