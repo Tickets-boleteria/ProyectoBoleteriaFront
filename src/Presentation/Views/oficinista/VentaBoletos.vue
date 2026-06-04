@@ -144,7 +144,7 @@ const cargarRutas = async () => {
         busId,
         origen: String(getFieldValue(frecuencia, 'CiudadOrigen') ?? 'Origen'),
         destino: String(getFieldValue(frecuencia, 'CiudadDestino') ?? 'Destino'),
-        esDirecto: Boolean(getFieldValue(frecuencia, 'EsDirecto') ?? getFieldValue(frecuencia, 'esdirecto') ?? false),
+        esDirecto: Boolean(getFieldValue(frecuencia, 'EsDirecto') ?? getFieldValue(frecuencia, 'es_directa') ?? getFieldValue(frecuencia, 'esdirecto') ?? false),
         hora: String(getFieldValue(frecuencia, 'HoraSalida') ?? '--:--').slice(0, 5),
         fecha: String(getFieldValue(fila, 'Fecha') ?? filtros.fecha),
         cooperativa: String(getFieldValue(cooperativa, 'Nombre') ?? 'Cooperativa'),
@@ -437,7 +437,22 @@ watch(() => filtros.fecha, () => {
         </div>
 
         <div class="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur">
-          <h3 class="text-lg font-black text-slate-900 mb-4">Destino del viaje</h3>
+          <h3 class="text-lg font-black text-slate-900 mb-2">Destino del viaje</h3>
+          
+          <!-- Aviso visual de tipo de ruta -->
+          <div v-if="rutaSeleccionada" class="mb-4">
+            <div v-if="rutaSeleccionada.esDirecto" class="p-3 border-2 border-rose-200 bg-rose-50 rounded-xl">
+              <p class="text-rose-700 font-black text-base italic">
+                ⚡ VIAJE DIRECTO: Bloqueada la venta en paradas intermedias.
+              </p>
+            </div>
+            <div v-else class="p-3 border-2 border-emerald-200 bg-emerald-50 rounded-xl">
+              <p class="text-emerald-700 font-bold text-base">
+                🚌 Viaje Normal: Se permite vender paradas intermedias.
+              </p>
+            </div>
+          </div>
+
           <div class="rounded-2xl bg-slate-50 p-4">
             <label class="text-xs font-bold text-slate-700">Seleccionar parada de destino</label>
             <div class="mt-2 space-y-2">

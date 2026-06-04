@@ -32,7 +32,7 @@ export class SupabaseFrecuenciaRepository {
         CodigoAnt: frecuencia.codigoAnt || null,
         ResolucionAnt: frecuencia.resolucionAnt || null,
         HoraSalida: frecuencia.horaSalida,
-        EsDirecto: frecuencia.esDirecto,
+        es_directa: frecuencia.esDirecto,
         Activa: true,
         CooperativaId: frecuencia.cooperativaId
       })

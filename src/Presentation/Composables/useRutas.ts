@@ -103,6 +103,7 @@ export function useRutas() {
     busId: '',
     choferId: '',
     fecha: '',
+    esDirecto: true,
   })
 
   const usuarioActual = computed(() => authStore.user as any)
@@ -204,7 +205,7 @@ export function useRutas() {
             CiudadOrigen,
             CiudadDestino,
             HoraSalida,
-            EsDirecto
+            es_directa
           ),
           Buses(
             Id,
@@ -213,7 +214,8 @@ export function useRutas() {
             Placa,
             TotalAsientos,
             Estado
-          )
+          ),
+          es_directa
         `)
         .order('Fecha', { ascending: false })
 
@@ -234,6 +236,7 @@ export function useRutas() {
         })
         .map((ruta: any) => ({
           ...ruta,
+          es_directa: Boolean(ruta.es_directa ?? ruta.Frecuencias?.es_directa ?? false),
           Estado: normalizarEstadoRuta(String(ruta.Estado || 'Programada')),
         }))
     } catch (err: any) {
@@ -474,6 +477,7 @@ export function useRutas() {
         BusId: Number(nuevaRuta.value.busId),
         ChoferId: String(nuevaRuta.value.choferId),
         Fecha: nuevaRuta.value.fecha,
+        es_directa: Boolean(nuevaRuta.value.esDirecto),
         Estado: 'Programada' as EstadoRuta,
         HoraSalida: null,
         HoraLlegada: null,
@@ -494,6 +498,7 @@ export function useRutas() {
         busId: '',
         choferId: '',
         fecha: '',
+        esDirecto: true,
       }
 
       await cargarTodo()
