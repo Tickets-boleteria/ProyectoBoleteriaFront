@@ -34,7 +34,8 @@ export class SupabaseFrecuenciaRepository {
         HoraSalida: frecuencia.horaSalida,
         EsDirecto: frecuencia.esDirecto,
         Activa: true,
-        CooperativaId: frecuencia.cooperativaId
+        CooperativaId: frecuencia.cooperativaId,
+        DiasOperacion: frecuencia.diasOperacion
       })
       .select()
       .single();
