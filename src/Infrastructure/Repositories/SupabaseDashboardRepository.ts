@@ -424,7 +424,7 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
       .reduce((suma, boleto) => suma + Number(getFieldValue(boleto, 'PrecioFinal') ?? 0), 0)
 
     const rutasActivasHoy = rutasHoy
-      .filter(ruta => ['Programada', 'En Curso', 'PROGRAMADA', 'EN_CURSO'].includes(String(getFieldValue(ruta, 'Estado'))))
+      .filter(ruta => ['Programada', 'Habilitada', 'EnCurso'].includes(String(getFieldValue(ruta, 'Estado'))))
       .length
 
     const busesActivos = buses
@@ -574,7 +574,7 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
       .length
 
     const pasajerosEscaneados = boletos
-      .filter(boleto => String(getFieldValue(boleto, 'Estado')) === 'En Viaje')
+      .filter(boleto => String(getFieldValue(boleto, 'Estado')) === 'Validado')
       .length
 
     const pasajerosPendientes = Math.max(0, pasajerosEsperados - pasajerosEscaneados)
@@ -588,7 +588,7 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
       destino: String(getFieldValue(hoja, 'Destino') ?? 'Destino'),
       bus: String(getFieldValue(bus, 'Numero') ?? getFieldValue(hoja, 'BusId') ?? 'N/D'),
       placa: String(getFieldValue(bus, 'Placa') ?? 'Sin placa'),
-      estado: String(getFieldValue(hoja, 'Estado') ?? 'PROGRAMADA'),
+      estado: String(getFieldValue(hoja, 'Estado') ?? 'Borrador'),
       pasajerosEsperados,
       pasajerosEscaneados,
       pasajerosPendientes,

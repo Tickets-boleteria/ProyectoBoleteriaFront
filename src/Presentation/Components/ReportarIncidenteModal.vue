@@ -153,22 +153,8 @@
             :disabled="loading"
           />
           <p class="text-xs text-gray-500 mt-1">
-            El administrador decidirá si reasignar este bus
+            Se generará automáticamente un transbordo operativo.
           </p>
-        </div>
-
-        <!-- Campo: Reportado Por -->
-        <div>
-          <label class="block text-sm font-bold text-gray-700 mb-1"
-            >Tu Usuario</label
-          >
-          <input
-            v-model="formIncidente.reportadoPor"
-            type="text"
-            placeholder="Tu nombre/ID"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-            :disabled="loading"
-          />
         </div>
 
         <!-- Botones de acción -->
@@ -348,11 +334,13 @@ async function enviarFormulario() {
     // Activamos la bandera de éxito para mostrar el banner verde
     success.value = true;
 
-    // 3. Cierre controlado y emisión de eventos de éxito
+    // Emitir éxito para que el padre sepa que debe refrescar sus datos (como la tabla de rutas)
+    emit("success");
+
+    // 3. Cierre controlado
     setTimeout(() => {
       cerrar();
-      emit("success");
-    }, 2000);
+    }, 3000);
   } catch (err: any) {
     error.value = "Error al procesar el incidente: " + (err.message || err);
   }

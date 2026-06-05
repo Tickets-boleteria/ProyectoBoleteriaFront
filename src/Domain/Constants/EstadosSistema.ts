@@ -8,6 +8,21 @@ export const ESTADOS_RUTA = [
 
 export type EstadoRuta = typeof ESTADOS_RUTA[number]
 
+export const ESTADOS_HOJA_RUTA = [
+  'Borrador',
+  'Publicada',
+  'Cerrada',
+] as const
+
+export type EstadoHojaRuta = typeof ESTADOS_HOJA_RUTA[number]
+
+export const TIPOS_GENERACION_HOJA = [
+  'Manual',
+  'Automatica',
+] as const
+
+export type TipoGeneracionHoja = typeof TIPOS_GENERACION_HOJA[number]
+
 export const ESTADOS_BOLETO = [
   'Emitido',
   'Validado',
@@ -122,6 +137,39 @@ export function normalizarEstadoRuta(estado: string): EstadoRuta {
   return equivalencias[limpio] || 'Programada'
 }
 
+export function normalizarEstadoHojaRuta(estado: string): EstadoHojaRuta {
+  const limpio = String(estado || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/_/g, '')
+
+  const equivalencias: Record<string, EstadoHojaRuta> = {
+    borrador: 'Borrador',
+    programada: 'Borrador',
+    publicada: 'Publicada',
+    encurso: 'Publicada',
+    cerrada: 'Cerrada',
+    finalizada: 'Cerrada',
+    cancelada: 'Cerrada',
+  }
+
+  return equivalencias[limpio] || 'Borrador'
+}
+
+export function normalizarTipoGeneracionHoja(tipo: string): TipoGeneracionHoja {
+  const limpio = String(tipo || '')
+    .trim()
+    .toLowerCase()
+
+  const equivalencias: Record<string, TipoGeneracionHoja> = {
+    manual: 'Manual',
+    automatica: 'Automatica',
+  }
+
+  return equivalencias[limpio] || 'Manual'
+}
+
 export function normalizarEstadoBus(estado: string): EstadoBus {
   const limpio = String(estado || '')
     .trim()
@@ -213,6 +261,27 @@ export type ResultadoValidacion = typeof RESULTADOS_VALIDACION[number]
 /* =========================================================================
  *  Normalizador de EstadoVenta (legado -> enum real)
  * ========================================================================= */
+export function normalizarResultadoValidacion(resultado: string): ResultadoValidacion {
+  const limpio = String(resultado || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/_/g, '')
+
+  const equivalencias: Record<string, ResultadoValidacion> = {
+    exitosa: 'Exitosa',
+    validado: 'Exitosa',
+    codigoinvalido: 'CodigoInvalido',
+    boletoyausado: 'BoletoYaUsado',
+    yavalidado: 'BoletoYaUsado',
+    boletovencido: 'BoletoVencido',
+    rechazadofinalizado: 'BoletoVencido',
+    rechazadofecha: 'BoletoVencido',
+  }
+
+  return equivalencias[limpio] || 'CodigoInvalido'
+}
+
 export function normalizarEstadoVenta(estado: string): EstadoVenta {
   const limpio = (estado || '').toString().trim().toLowerCase().replace(/\s+/g, '')
   const mapa: Record<string, EstadoVenta> = {

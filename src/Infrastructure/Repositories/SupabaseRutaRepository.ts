@@ -168,6 +168,22 @@ export class SupabaseRutaRepository implements IRutaRepository {
     return (data || []).map((item) => this.mapearRuta(item))
   }
 
+  async obtenerRutaActivaPorBus(busId: number): Promise<Ruta | null> {
+    const { data, error } = await supabase
+      .from(this.tabla)
+      .select('*')
+      .eq('BusId', busId)
+      .eq('Estado', 'EnCurso')
+      .order('Id', { ascending: false })
+      .limit(1);
+
+    if (error) {
+      throw new DomainException(`Error al obtener ruta activa del bus: ${error.message}`);
+    }
+
+    return (data && data.length > 0) ? this.mapearRuta(data[0]) : null;
+  }
+
   private mapearRuta(data: any): Ruta {
     const createdAtVal = getFieldValue(data, 'CreatedAt')
 
@@ -182,7 +198,9 @@ export class SupabaseRutaRepository implements IRutaRepository {
       getFieldValue(data, 'HoraLlegada'),
       getFieldValue(data, 'ObservacionChofer'),
       createdAtVal ? new Date(createdAtVal) : undefined,
-      getFieldValue(data, 'HojaRutaId')
+      getFieldValue(data, 'HojaRutaId'),
+      getFieldValue(data, 'es_directa') ?? true,
+      getFieldValue(data, 'ExcepcionEmergencia') ?? false
     )
   }
 
@@ -194,6 +212,8 @@ export class SupabaseRutaRepository implements IRutaRepository {
       Estado: normalizarEstadoRuta(String(ruta.estado || 'Programada')),
       ChoferId: ruta.choferId || null,
       HojaRutaId: ruta.hojaRutaId || null,
+      es_directa: ruta.esDirecta,
+      ExcepcionEmergencia: ruta.excepcionEmergencia,
     }
   }
 }

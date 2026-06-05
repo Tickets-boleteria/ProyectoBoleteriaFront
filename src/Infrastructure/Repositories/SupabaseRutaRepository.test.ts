@@ -35,12 +35,12 @@ describe('SupabaseRutaRepository', () => {
     const ruta = new Ruta(1, 10, '2026-05-25', 'Programada');
 
     const datosInsertados = {
-      id: 100,
-      frecuencia_id: 1,
-      bus_id: 10,
-      fecha: '2026-05-25',
-      estado: 'Programada',
-      created_at: '2026-05-19T10:00:00Z',
+      Id: 100,
+      FrecuenciaId: 1,
+      BusId: 10,
+      Fecha: '2026-05-25',
+      Estado: 'Programada',
+      CreatedAt: '2026-05-19T10:00:00Z',
     };
 
     const mockInsert = vi.fn().mockReturnThis();
@@ -107,12 +107,12 @@ describe('SupabaseRutaRepository', () => {
    */
   it('debe buscar una ruta por ID correctamente', async () => {
     const datosRuta = {
-      id: 100,
-      frecuencia_id: 1,
-      bus_id: 10,
-      fecha: '2026-05-25',
-      estado: 'Programada',
-      created_at: '2026-05-19T10:00:00Z',
+      Id: 100,
+      FrecuenciaId: 1,
+      BusId: 10,
+      Fecha: '2026-05-25',
+      Estado: 'Programada',
+      CreatedAt: '2026-05-19T10:00:00Z',
     };
 
     const mockEq = vi.fn().mockReturnThis();
@@ -128,7 +128,7 @@ describe('SupabaseRutaRepository', () => {
     } as any);
 
     mockEq.mockReturnValue({
-      single: mockSingle,
+      maybeSingle: mockSingle,
     });
 
     const resultado = await repository.buscarPorId(100);
@@ -146,7 +146,7 @@ describe('SupabaseRutaRepository', () => {
     const mockEq = vi.fn().mockReturnThis();
     const mockSingle = vi.fn().mockResolvedValue({
       data: null,
-      error: { code: 'PGRST116' },
+      error: null,
     });
 
     vi.mocked(supabase.from).mockReturnValue({
@@ -156,7 +156,7 @@ describe('SupabaseRutaRepository', () => {
     } as any);
 
     mockEq.mockReturnValue({
-      single: mockSingle,
+      maybeSingle: mockSingle,
     });
 
     const resultado = await repository.buscarPorId(999);
@@ -201,11 +201,11 @@ describe('SupabaseRutaRepository', () => {
    */
   it('debe retornar false cuando el bus NO está disponible en esa fecha', async () => {
     const datosRutaExistente = {
-      id: 50,
-      frecuencia_id: 1,
-      bus_id: 10,
-      fecha: '2026-05-25',
-      estado: 'Programada',
+      Id: 50,
+      FrecuenciaId: 1,
+      BusId: 10,
+      Fecha: '2026-05-25',
+      Estado: 'Programada',
     };
 
     const mockLimit = vi.fn().mockResolvedValue({
@@ -283,19 +283,19 @@ describe('SupabaseRutaRepository', () => {
    */
   it('debe obtener todas las rutas de un bus en una fecha específica', async () => {
     const datosRuta1 = {
-      id: 100,
-      frecuencia_id: 1,
-      bus_id: 10,
-      fecha: '2026-05-25',
-      estado: 'Programada',
+      Id: 100,
+      FrecuenciaId: 1,
+      BusId: 10,
+      Fecha: '2026-05-25',
+      Estado: 'Programada',
     };
 
     const datosRuta2 = {
-      id: 101,
-      frecuencia_id: 2,
-      bus_id: 10,
-      fecha: '2026-05-25',
-      estado: 'Programada',
+      Id: 101,
+      FrecuenciaId: 2,
+      BusId: 10,
+      Fecha: '2026-05-25',
+      Estado: 'Programada',
     };
 
     const mockOrder = vi.fn().mockResolvedValue({
@@ -329,12 +329,12 @@ describe('SupabaseRutaRepository', () => {
    */
   it('debe mapear correctamente datos de Supabase a entidad Ruta', async () => {
     const datosRuta = {
-      id: 100,
-      frecuencia_id: 1,
-      bus_id: 10,
-      fecha: '2026-05-25',
-      estado: 'En curso',
-      created_at: '2026-05-19T10:00:00Z',
+      Id: 100,
+      FrecuenciaId: 1,
+      BusId: 10,
+      Fecha: '2026-05-25',
+      Estado: 'En curso',
+      CreatedAt: '2026-05-19T10:00:00Z',
     };
 
     const mockEq = vi.fn().mockReturnThis();
@@ -350,7 +350,7 @@ describe('SupabaseRutaRepository', () => {
     } as any);
 
     mockEq.mockReturnValue({
-      single: mockSingle,
+      maybeSingle: mockSingle,
     });
 
     const resultado = await repository.buscarPorId(100);
@@ -359,7 +359,7 @@ describe('SupabaseRutaRepository', () => {
     expect(resultado?.frecuenciaId).toBe(1);
     expect(resultado?.busId).toBe(10);
     expect(resultado?.fecha).toBe('2026-05-25');
-    expect(resultado?.estado).toBe('En curso');
+    expect(resultado?.estado).toBe('EnCurso');
     expect(resultado?.createdAt).toBeInstanceOf(Date);
   });
 });

@@ -12,6 +12,8 @@ export class Ruta {
     public horaLlegada?: string | null,
     public observacionChofer?: string | null,
     public createdAt?: Date,
-    public hojaRutaId?: number | null
+    public hojaRutaId?: number | null,
+    public esDirecta: boolean = true,
+    public excepcionEmergencia: boolean = false
   ) {}
 }

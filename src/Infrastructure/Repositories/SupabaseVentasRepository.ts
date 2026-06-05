@@ -172,4 +172,15 @@ return id
       throw new Error('La venta no existe o ya no está pendiente.')
     }
   }
+
+  async migrarVentasARuta(oldRutaId: number, newRutaId: number): Promise<void> {
+    const { error } = await supabase
+      .from('Ventas')
+      .update({ RutaId: newRutaId })
+      .eq('RutaId', oldRutaId);
+
+    if (error) {
+      throw new Error(`Error al migrar ventas a la nueva ruta: ${error.message}`);
+    }
+  }
 }
