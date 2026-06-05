@@ -3,6 +3,7 @@ export class Frecuencia {
   public codigoAnt?: string;
   public resolucionAnt?: string;
   public createdAt?: Date;
+  public diasOperacion: string[] = [];
 
   constructor(
     public cooperativaId: number,

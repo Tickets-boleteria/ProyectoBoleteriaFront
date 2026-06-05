@@ -9,6 +9,7 @@ interface RutaDisponible {
   busId: number
   origen: string
   destino: string
+  esDirecto: boolean
   hora: string
   fecha: string
   cooperativa: string
@@ -375,7 +376,7 @@ const cargarRutas = async () => {
 
     const [frecuenciasResp, busesResp, cooperativasResp, configuracionesResp, preciosBaseResp, libresResp, vendidosPorTipoResp] = await Promise.all([
       frecuenciaIds.length
-        ? supabase.from('Frecuencias').select('Id, CiudadOrigen, CiudadDestino, HoraSalida, CooperativaId').in('Id', frecuenciaIds)
+        ? supabase.from('Frecuencias').select('Id, CiudadOrigen, CiudadDestino, HoraSalida, EsDirecto, CooperativaId').in('Id', frecuenciaIds)
         : Promise.resolve({ data: [], error: null } as any),
       busIds.length
         ? supabase.from('Buses').select('Id, Placa, TotalAsientos').in('Id', busIds)
@@ -463,6 +464,7 @@ const cargarRutas = async () => {
         busId,
         origen: String(getFieldValue(frecuencia, 'CiudadOrigen') ?? ''),
         destino: String(getFieldValue(frecuencia, 'CiudadDestino') ?? ''),
+        esDirecto: Boolean(getFieldValue(frecuencia, 'EsDirecto') ?? getFieldValue(frecuencia, 'es_directa') ?? false),
         hora: String(getFieldValue(frecuencia, 'HoraSalida') ?? '').slice(0, 5),
         fecha: String(getFieldValue(fila, 'Fecha') ?? ''),
         cooperativa: String(getFieldValue(cooperativa, 'Nombre') ?? 'N/D'),
@@ -872,7 +874,11 @@ watch(() => filtros.fecha, () => {
           class="rounded-2xl bg-white p-5 shadow-md border border-slate-100 hover:shadow-lg hover:border-blue-300 transition-all">
           <div class="flex flex-wrap items-center gap-4">
             <div class="flex-1 min-w-[200px]">
-              <p class="text-xs font-bold uppercase tracking-wider text-slate-400">{{ r.cooperativa }}</p>
+              <div class="flex items-center gap-2 mb-1">
+                <p class="text-xs font-bold uppercase tracking-wider text-slate-400">{{ r.cooperativa }}</p>
+                <span v-if="r.esDirecto" class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-orange-500 text-white shadow-sm">⚡ Directo</span>
+                <span v-else class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-500 text-white shadow-sm">🚌 Con Paradas</span>
+              </div>
               <p class="text-xl font-black text-slate-900">{{ r.origen }} → {{ r.destino }}</p>
               <p class="text-sm text-slate-500">{{ r.fecha }} · Sale {{ r.hora }} · Bus {{ r.busPlaca }}</p>
             </div>

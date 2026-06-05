@@ -2,6 +2,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { supabase } from '../../../Infrastructure/Api/supabaseClient'
 import { useVentaDescuento } from '../../Composables/useVentaDescuento'
+import { VenderBoleto } from '../../../Application/UseCases/VenderBoleto'
 
 interface RutaDisponible {
   id: number
@@ -9,6 +10,7 @@ interface RutaDisponible {
   busId: number
   origen: string
   destino: string
+  esDirecto: boolean
   hora: string
   fecha: string
   cooperativa: string
@@ -100,7 +102,7 @@ const cargarRutas = async () => {
     const busIds = [...new Set(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'BusId') ?? getFieldValue(fila, 'busid'))))].filter(Boolean)
 
     const [frecuenciasResp, busesResp, preciosResp, vendidosResp] = await Promise.all([
-      frecuenciaIds.length ? supabase.from('Frecuencias').select('Id, CiudadOrigen, CiudadDestino, HoraSalida, CooperativaId').in('Id', frecuenciaIds) : Promise.resolve({ data: [], error: null } as any),
+      frecuenciaIds.length ? supabase.from('Frecuencias').select('Id, CiudadOrigen, CiudadDestino, HoraSalida, EsDirecto, CooperativaId').in('Id', frecuenciaIds) : Promise.resolve({ data: [], error: null } as any),
       busIds.length ? supabase.from('Buses').select('Id, Placa, TotalAsientos, CooperativaId').in('Id', busIds) : Promise.resolve({ data: [], error: null } as any),
       cargarPrecioBasePorBus(busIds),
       cargarAsientosVendidos(rutasBase.map((fila: DbRow) => Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id'))))
@@ -142,6 +144,7 @@ const cargarRutas = async () => {
         busId,
         origen: String(getFieldValue(frecuencia, 'CiudadOrigen') ?? 'Origen'),
         destino: String(getFieldValue(frecuencia, 'CiudadDestino') ?? 'Destino'),
+        esDirecto: Boolean(getFieldValue(frecuencia, 'EsDirecto') ?? getFieldValue(frecuencia, 'es_directa') ?? getFieldValue(frecuencia, 'esdirecto') ?? false),
         hora: String(getFieldValue(frecuencia, 'HoraSalida') ?? '--:--').slice(0, 5),
         fecha: String(getFieldValue(fila, 'Fecha') ?? filtros.fecha),
         cooperativa: String(getFieldValue(cooperativa, 'Nombre') ?? 'Cooperativa'),
@@ -194,11 +197,31 @@ function aplicarTipoDescuento() {
   else if (edad.value === 7 || edad.value === 70) edad.value = 30
 }
 
+const paradasIntermedias = ref<{ id: number; ciudad: string }[]>([])
+const destinoSeleccionadoId = ref<number | null>(null)
+
+const cargarParadas = async (frecuenciaId: number) => {
+  const { data, error: paradasError } = await supabase
+    .from('ParadasIntermedias')
+    .select('Id, Ciudad')
+    .eq('FrecuenciaId', frecuenciaId)
+    .order('Orden', { ascending: true })
+  
+  if (!paradasError) {
+    paradasIntermedias.value = (data || []).map(p => ({
+      id: Number(getFieldValue(p, 'Id') ?? getFieldValue(p, 'id')),
+      ciudad: String(getFieldValue(p, 'Ciudad') ?? getFieldValue(p, 'ciudad'))
+    }))
+  }
+}
+
 function seleccionarRuta(r: RutaDisponible) {
   rutaSeleccionada.value = r
   precioBase.value = r.precioBase
   origen.value = r.origen
   destino.value = r.destino
+  destinoSeleccionadoId.value = null // Reset destino intermedio
+  void cargarParadas(r.frecuenciaId)
 }
 
 function calcularDescuento() {
@@ -222,15 +245,36 @@ function confirmarVenta() {
     errorMessage.value = 'Completa los datos del pasajero antes de confirmar.'
     return
   }
-  const precioFinal = resultado.value?.precioFinal ?? rutaSeleccionada.value.precioBase
-  const total = precioFinal * pasajero.cantidadBoletos
-  ventaConfirmada.value = {
-    codigo: null,
-    ruta: rutaSeleccionada.value,
-    pasajero: { ...pasajero },
-    precioFinal,
-    total,
-    fecha: new Date().toISOString(),
+
+  const venderBoletoUseCase = new VenderBoleto()
+  
+  try {
+    // Validamos la venta con el caso de uso (Capa de Aplicación)
+    // El ID de la terminal principal es null (por defecto) o podemos pasar un ID fijo si existiera.
+    // Para simplificar, asumimos que destinoSeleccionadoId === null significa Terminal Principal.
+    venderBoletoUseCase.ejecutar({
+      frecuenciaId: rutaSeleccionada.value.frecuenciaId,
+      esDirecto: rutaSeleccionada.value.esDirecto,
+      paradaDestinoId: destinoSeleccionadoId.value ?? 0, // 0 representa la terminal principal en este ejemplo
+      terminalDestinoId: 0,
+      pasajeroCedula: cedula.value,
+      pasajeroNombres: pasajero.nombres,
+      pasajeroApellidos: pasajero.apellidos,
+      cantidadBoletos: pasajero.cantidadBoletos
+    })
+
+    const precioFinal = resultado.value?.precioFinal ?? rutaSeleccionada.value.precioBase
+    const total = precioFinal * pasajero.cantidadBoletos
+    ventaConfirmada.value = {
+      codigo: null,
+      ruta: rutaSeleccionada.value,
+      pasajero: { ...pasajero },
+      precioFinal,
+      total,
+      fecha: new Date().toISOString(),
+    }
+  } catch (err: any) {
+    errorMessage.value = err.message || 'Error al validar la venta.'
   }
 }
 
@@ -390,6 +434,55 @@ watch(() => filtros.fecha, () => {
             <p class="font-black text-slate-900">{{ rutaSeleccionada.origen }} → {{ rutaSeleccionada.destino }} · {{ rutaSeleccionada.fecha }} · {{ rutaSeleccionada.hora }}</p>
           </div>
           <button @click="rutaSeleccionada = null" class="text-sm font-bold text-blue-700 underline underline-offset-4">Cambiar ruta</button>
+        </div>
+
+        <div class="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur">
+          <h3 class="text-lg font-black text-slate-900 mb-2">Destino del viaje</h3>
+          
+          <!-- Aviso visual de tipo de ruta -->
+          <div v-if="rutaSeleccionada" class="mb-4">
+            <div v-if="rutaSeleccionada.esDirecto" class="p-3 border-2 border-rose-200 bg-rose-50 rounded-xl">
+              <p class="text-rose-700 font-black text-base italic">
+                ⚡ VIAJE DIRECTO: Bloqueada la venta en paradas intermedias.
+              </p>
+            </div>
+            <div v-else class="p-3 border-2 border-emerald-200 bg-emerald-50 rounded-xl">
+              <p class="text-emerald-700 font-bold text-base">
+                🚌 Viaje Normal: Se permite vender paradas intermedias.
+              </p>
+            </div>
+          </div>
+
+          <div class="rounded-2xl bg-slate-50 p-4">
+            <label class="text-xs font-bold text-slate-700">Seleccionar parada de destino</label>
+            <div class="mt-2 space-y-2">
+              <label class="flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all"
+                :class="!destinoSeleccionadoId ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'">
+                <input type="radio" :value="null" v-model="destinoSeleccionadoId" class="hidden" @change="destino = rutaSeleccionada!.destino"/>
+                <span class="font-bold text-slate-900">{{ rutaSeleccionada.destino }} (Terminal Principal)</span>
+              </label>
+
+              <template v-if="paradasIntermedias.length > 0">
+                <p class="text-xs font-bold text-slate-400 uppercase tracking-widest mt-4">Paradas intermedias</p>
+                <div class="grid gap-2">
+                  <label v-for="p in paradasIntermedias" :key="p.id"
+                    class="flex items-center justify-between p-3 rounded-xl border-2 transition-all"
+                    :class="[
+                      destinoSeleccionadoId === p.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white',
+                      rutaSeleccionada.esDirecto ? 'opacity-50 cursor-not-allowed bg-slate-100' : 'cursor-pointer hover:border-blue-300'
+                    ]">
+                    <div class="flex items-center gap-3">
+                      <input type="radio" :value="p.id" v-model="destinoSeleccionadoId" 
+                        :disabled="rutaSeleccionada.esDirecto" class="hidden"
+                        @change="destino = p.ciudad"/>
+                      <span class="font-bold text-slate-700">{{ p.ciudad }}</span>
+                    </div>
+                    <span v-if="rutaSeleccionada.esDirecto" class="text-[10px] font-black uppercase text-rose-600 bg-rose-50 px-2 py-1 rounded-lg">No disponible en ruta directa</span>
+                  </label>
+                </div>
+              </template>
+            </div>
+          </div>
         </div>
 
         <div class="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur">

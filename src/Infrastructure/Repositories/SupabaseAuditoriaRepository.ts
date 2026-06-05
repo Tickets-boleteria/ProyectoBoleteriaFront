@@ -8,13 +8,13 @@ import { IAuditoriaRepository } from '../../Domain/Repositories/IAuditoriaReposi
 import { DomainException } from '../../Domain/Exceptions/DomainException';
 
 export class SupabaseAuditoriaRepository implements IAuditoriaRepository {
-  private readonly tabla = 'auditoria_cambios';
+  private readonly tabla = 'Cambios';
 
   async listar(): Promise<AuditoriaEntry[]> {
     const { data, error } = await supabase
       .from(this.tabla)
       .select('*')
-      .order('fecha', { ascending: false });
+      .order('FechaSolicitud', { ascending: false });
 
     if (error) {
       throw new DomainException(`Error al obtener registros de auditoría: ${error.message}`);
@@ -25,14 +25,14 @@ export class SupabaseAuditoriaRepository implements IAuditoriaRepository {
 
   private mapearAuditoria(data: any): AuditoriaEntry {
     return {
-      id: data.id,
-      fecha: data.fecha,
-      usuario: data.usuario_nombre, // Asumiendo que guardas el nombre para reportes
-      rol: data.usuario_rol,
-      accion: data.accion,
-      modulo: data.modulo,
-      tipoCambio: data.tipo_cambio,
-      detalle: data.detalle,
+      id: data.Id,
+      fecha: data.FechaSolicitud,
+      usuario: data.Titulo, // Mapeo temporal según estructura de Cambios
+      rol: data.Prioridad,
+      accion: data.Estado,
+      modulo: 'Gestión de Cambios',
+      tipoCambio: data.TipoCambio,
+      detalle: data.Descripcion,
     };
   }
 }

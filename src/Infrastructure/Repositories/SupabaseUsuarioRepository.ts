@@ -6,7 +6,7 @@ export class SupabaseUsuarioRepository implements IUsuarioRepository {
     const { data, error } = await supabase
       .from('Usuarios')
       .select('Id, Cedula, Nombres, Apellidos, Email, Telefono, Rol, Activo, CooperativaId')
-      .eq('Activo', true);
+      .order('Nombres', { ascending: true });
     if (error) throw new Error(error.message);
     return data;
   }
@@ -15,6 +15,7 @@ export class SupabaseUsuarioRepository implements IUsuarioRepository {
     const { data, error } = await supabase
       .from('Usuarios')
       .select('Id, Cedula, Nombres, Apellidos, Email, Telefono, Rol, Activo')
+      .order('created_at', { ascending: false })
       .eq('Id', id)
       .single();
     if (error) throw new Error(error.message);
@@ -45,7 +46,8 @@ export class SupabaseUsuarioRepository implements IUsuarioRepository {
     const { data, error } = await supabase
       .from('Usuarios')
       .insert({
-        Cedula:        usuario.cedula,
+        Id:              crypto.randomUUID(),
+        Cedula:          usuario.cedula,
         Nombres:       usuario.nombres,
         Apellidos:     usuario.apellidos,
         Email:         usuario.email,
@@ -65,10 +67,11 @@ export class SupabaseUsuarioRepository implements IUsuarioRepository {
     const { data, error } = await supabase
       .from('Usuarios')
       .update({
-        Nombres:   datos.nombres,
-        Apellidos: datos.apellidos,
-        Telefono:  datos.telefono,
-        Rol:       datos.rol,
+        Nombres:         datos.nombres,
+        Apellidos:       datos.apellidos,
+        Telefono:        datos.telefono,
+        Rol:             datos.rol,
+        Activo:          datos.activo,
       })
       .eq('Id', id)
       .select()

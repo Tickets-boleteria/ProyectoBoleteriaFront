@@ -1,5 +1,6 @@
 export const ESTADOS_RUTA = [
   'Programada',
+  'Habilitada',
   'EnCurso',
   'Completada',
   'Cancelada',
@@ -40,6 +41,7 @@ export function esEstadoBusValido(estado: string): estado is EstadoBus {
 export function getEstadoRutaLabel(estado: EstadoRuta): string {
   const labels: Record<EstadoRuta, string> = {
     Programada: 'Programada',
+    Habilitada: 'Habilitada',
     EnCurso: 'En curso',
     Completada: 'Completada',
     Cancelada: 'Cancelada',
@@ -75,7 +77,8 @@ export function puedeCambiarEstadoRuta(
   nuevoEstado: EstadoRuta
 ): boolean {
   const flujo: Record<EstadoRuta, EstadoRuta[]> = {
-    Programada: ['EnCurso', 'Cancelada'],
+    Programada: ['Habilitada', 'EnCurso', 'Cancelada'],
+    Habilitada: ['EnCurso', 'Cancelada'],
     EnCurso: ['Completada', 'Cancelada'],
     Completada: [],
     Cancelada: [],
@@ -88,7 +91,8 @@ export function obtenerSiguienteEstadoRuta(
   estadoActual: EstadoRuta
 ): EstadoRuta | null {
   const siguiente: Record<EstadoRuta, EstadoRuta | null> = {
-    Programada: 'EnCurso',
+    Programada: 'Habilitada',
+    Habilitada: 'EnCurso',
     EnCurso: 'Completada',
     Completada: null,
     Cancelada: null,
@@ -102,11 +106,15 @@ export function normalizarEstadoRuta(estado: string): EstadoRuta {
 
   if (limpio === 'programada') return 'Programada'
   if (limpio === 'programado') return 'Programada'
+  if (limpio === 'habilitada') return 'Habilitada'
+  if (limpio === 'habilitado') return 'Habilitada'
   if (limpio === 'encurso') return 'EnCurso'
   if (limpio === 'enproceso') return 'EnCurso'
   if (limpio === 'enviaje') return 'EnCurso'
   if (limpio === 'completada') return 'Completada'
   if (limpio === 'completado') return 'Completada'
+  if (limpio === 'finalizada') return 'Completada'
+  if (limpio === 'finalizado') return 'Completada'
   if (limpio === 'cancelada') return 'Cancelada'
   if (limpio === 'cancelado') return 'Cancelada'
 
