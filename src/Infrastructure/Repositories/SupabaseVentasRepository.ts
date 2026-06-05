@@ -39,6 +39,28 @@ if (!id || isNaN(id)) {
 return id
   }
 
+  // Rollback logico de una venta: marca la Venta como Cancelada y sus boletos
+  // como Cancelado. Lo usa ConfirmarCompra si fallan los boletos tras crear la venta.
+  async cancelarVenta(ventaId: number): Promise<void> {
+    const { error: ventaError } = await supabase
+      .from('Ventas')
+      .update({ Estado: 'Cancelada' })
+      .eq('Id', ventaId)
+
+    if (ventaError) {
+      console.error('No se pudo cancelar la venta en rollback:', ventaError)
+    }
+
+    const { error: boletosError } = await supabase
+      .from('Boletos')
+      .update({ Estado: 'Cancelado' })
+      .eq('VentaId', ventaId)
+
+    if (boletosError) {
+      console.error('No se pudieron cancelar los boletos en rollback:', boletosError)
+    }
+  }
+
   async obtenerVentaPorId(ventaId: number): Promise<any | null> {
     const { data, error } = await supabase
       .from('Ventas')
