@@ -113,6 +113,8 @@ export function normalizarEstadoRuta(estado: string): EstadoRuta {
   if (limpio === 'enviaje') return 'EnCurso'
   if (limpio === 'completada') return 'Completada'
   if (limpio === 'completado') return 'Completada'
+  if (limpio === 'finalizada') return 'Completada'
+  if (limpio === 'finalizado') return 'Completada'
   if (limpio === 'cancelada') return 'Cancelada'
   if (limpio === 'cancelado') return 'Cancelada'
 

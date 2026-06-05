@@ -11,6 +11,7 @@ export class Ruta {
     public horaSalida?: string | null,
     public horaLlegada?: string | null,
     public observacionChofer?: string | null,
-    public createdAt?: Date
+    public createdAt?: Date,
+    public hojaRutaId?: number | null
   ) {}
 }

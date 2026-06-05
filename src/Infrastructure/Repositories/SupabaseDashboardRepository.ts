@@ -143,7 +143,7 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
           )
         )
       `)
-      .eq('Estado', 'Pagado')
+      .eq('Estado', 'Emitido')
 
     if (error) {
       return

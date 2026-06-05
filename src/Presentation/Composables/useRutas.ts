@@ -9,6 +9,10 @@ import {
   obtenerSiguienteEstadoRuta,
   puedeCambiarEstadoRuta,
 } from '../../Domain/Constants/EstadosSistema'
+import { HabilitarRutaDiaria } from '../../Application/UseCases/HabilitarRutaDiaria'
+import { SupabaseRutaRepository } from '../../Infrastructure/Repositories/SupabaseRutaRepository'
+import { SupabaseBusRepository } from '../../Infrastructure/Repositories/SupabaseBusRepository'
+import { SupabaseFrecuenciaRepository } from '../../Infrastructure/Repositories/SupabaseFrecuenciaRepository'
 
 type RutaRow = {
   Id: number
@@ -105,6 +109,7 @@ export function useRutas() {
     busId: '',
     choferId: '',
     fecha: '',
+    hojaRutaId: '',
   })
 
   const usuarioActual = computed(() => authStore.user as any)
@@ -206,7 +211,7 @@ export function useRutas() {
             CiudadOrigen,
             CiudadDestino,
             HoraSalida,
-            EsDirecto
+            es_directa
           ),
           Buses(
             Id,
@@ -215,7 +220,8 @@ export function useRutas() {
             Placa,
             TotalAsientos,
             Estado
-          )
+          ),
+          es_directa
         `)
         .order('Fecha', { ascending: false })
 
@@ -236,6 +242,7 @@ export function useRutas() {
         })
         .map((ruta: any) => ({
           ...ruta,
+          es_directa: Boolean(ruta.es_directa ?? ruta.Frecuencias?.es_directa ?? false),
           Estado: normalizarEstadoRuta(String(ruta.Estado || 'Programada')),
         }))
     } catch (err: any) {
@@ -490,23 +497,41 @@ export function useRutas() {
         throw new Error('El chofer seleccionado ya tiene una ruta activa en esa fecha.')
       }
 
-      const payload = {
-        FrecuenciaId: Number(nuevaRuta.value.frecuenciaId),
-        BusId: Number(nuevaRuta.value.busId),
-        ChoferId: String(nuevaRuta.value.choferId),
-        Fecha: nuevaRuta.value.fecha,
-        Estado: 'Programada' as EstadoRuta,
-        HoraSalida: null,
-        HoraLlegada: null,
-        ObservacionChofer: null,
-        FechaObservacion: null,
-      }
+      // 2. Usar el caso de uso para validar bus, frecuencia y DÍA DE LA SEMANA
+      const rutaRepo = new SupabaseRutaRepository();
+      const busRepo = new SupabaseBusRepository();
+      const frecuenciaRepo = new SupabaseFrecuenciaRepository();
+      const habilitarUC = new HabilitarRutaDiaria(rutaRepo, busRepo, frecuenciaRepo);
 
-      const { error: err } = await supabase
+      await habilitarUC.ejecutar({
+        frecuenciaId: Number(nuevaRuta.value.frecuenciaId),
+        busId: Number(nuevaRuta.value.busId),
+        fecha: nuevaRuta.value.fecha
+      });
+
+      // 3. Si el caso de uso pasó (ya creó la ruta base), actualizamos con Chofer y HojaRuta
+      // Nota: habilitarUC.ejecutar ya insertó la ruta. Buscamos la última para completar datos.
+      const { data: rutaCreada } = await supabase
         .from('Rutas')
-        .insert(payload)
+        .select('Id')
+        .eq('FrecuenciaId', Number(nuevaRuta.value.frecuenciaId))
+        .eq('BusId', Number(nuevaRuta.value.busId))
+        .eq('Fecha', nuevaRuta.value.fecha)
+        .order('CreatedAt', { ascending: false })
+        .limit(1)
+        .single();
 
-      if (err) throw err
+      if (rutaCreada) {
+        const { error: updateErr } = await supabase
+          .from('Rutas')
+          .update({
+            ChoferId: String(nuevaRuta.value.choferId),
+            HojaRutaId: nuevaRuta.value.hojaRutaId ? Number(nuevaRuta.value.hojaRutaId) : null
+          })
+          .eq('Id', rutaCreada.Id);
+        
+        if (updateErr) throw updateErr;
+      }
 
       success.value = 'Ruta programada correctamente con bus y chofer asignados.'
 
@@ -515,6 +540,7 @@ export function useRutas() {
         busId: '',
         choferId: '',
         fecha: '',
+        hojaRutaId: '',
       }
 
       await cargarTodo()
@@ -535,6 +561,27 @@ export function useRutas() {
 
       if (!puedeCambiarEstadoRuta(estadoActual, nuevoEstado)) {
         throw new Error(`No se puede cambiar una ruta de ${estadoActual} a ${nuevoEstado}.`)
+      }
+
+      // Validación obligatoria de Hoja de Ruta para habilitar la venta
+      if (nuevoEstado === 'Habilitada' && !ruta.HojaRutaId) {
+        const inputHoja = prompt('Ingrese el número o ID de la Hoja de Ruta (Obligatorio para habilitar):');
+        if (!inputHoja || inputHoja.trim() === '') {
+          throw new Error('Es obligatorio ingresar el número de Hoja de Ruta para habilitar el viaje.');
+        }
+        
+        const hojaId = Number(inputHoja);
+        if (isNaN(hojaId)) {
+          throw new Error('El número de Hoja de Ruta debe ser un valor numérico.');
+        }
+
+        const { error: updateHojaErr } = await supabase
+          .from('Rutas')
+          .update({ HojaRutaId: hojaId })
+          .eq('Id', ruta.Id);
+        
+        if (updateHojaErr) throw updateHojaErr;
+        ruta.HojaRutaId = hojaId;
       }
 
       if (nuevoEstado === 'EnCurso') {

@@ -118,8 +118,8 @@ function toggleDia(dia: string) {
               </td>
               <td class="px-4 py-3">
                 <span class="inline-block px-2.5 py-1 rounded-full text-xs font-bold"
-                      :class="(f.EsDirecto || f.es_directo) ? 'bg-indigo-100 text-indigo-700' : 'bg-orange-100 text-orange-700'">
-                  {{ (f.EsDirecto || f.es_directo) ? 'Directo' : 'Con Paradas' }}
+                      :class="(f.EsDirecto || f.es_directo || f.es_directa) ? 'bg-orange-500 text-white shadow-sm' : 'bg-emerald-500 text-white shadow-sm'">
+                  {{ (f.EsDirecto || f.es_directo || f.es_directa) ? '⚡ Directo' : '🚌 Con Paradas' }}
                 </span>
               </td>
               <td class="px-4 py-3">

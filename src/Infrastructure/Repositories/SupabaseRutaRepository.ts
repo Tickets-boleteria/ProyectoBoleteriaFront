@@ -64,7 +64,7 @@ export class SupabaseRutaRepository implements IRutaRepository {
       .select('*')
       .eq('BusId', busId)
       .eq('Fecha', fecha)
-      .in('Estado', ['Programada', 'En curso', 'En proceso'])
+      .in('Estado', ['Programada', 'Habilitada', 'En curso', 'En proceso'])
       .limit(1);
 
     if (error) {
@@ -82,7 +82,7 @@ export class SupabaseRutaRepository implements IRutaRepository {
     const { error } = await supabase
       .from(this.tabla)
       .update({ Estado: estado })
-      .eq('id', id);
+      .eq('Id', id);
 
     if (error) {
       throw new DomainException(`Error al actualizar estado de ruta diaria: ${error.message}`);
@@ -136,7 +136,12 @@ export class SupabaseRutaRepository implements IRutaRepository {
       getFieldValue(data, 'fecha'),
       getFieldValue(data, 'estado') || 'Programada',
       getFieldValue(data, 'id'),
-      createdAtVal ? new Date(createdAtVal) : undefined
+      getFieldValue(data, 'choferid') ?? getFieldValue(data, 'chofer_id'),
+      getFieldValue(data, 'horasalida') ?? getFieldValue(data, 'hora_salida'),
+      getFieldValue(data, 'horallegada') ?? getFieldValue(data, 'hora_llegada'),
+      getFieldValue(data, 'observacionchofer') ?? getFieldValue(data, 'observacion_chofer'),
+      createdAtVal ? new Date(createdAtVal) : undefined,
+      getFieldValue(data, 'hojarutaid') ?? getFieldValue(data, 'hoja_ruta_id')
     );
   }
 
@@ -149,6 +154,8 @@ export class SupabaseRutaRepository implements IRutaRepository {
       BusId: ruta.busId,
       Fecha: ruta.fecha,
       Estado: ruta.estado || 'Programada',
+      ChoferId: ruta.choferId,
+      HojaRutaId: ruta.hojaRutaId
     };
   }
 }
