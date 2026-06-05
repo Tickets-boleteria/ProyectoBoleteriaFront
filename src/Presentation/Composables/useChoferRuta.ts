@@ -235,10 +235,10 @@ export function useChoferRuta() {
   async function cargarResumenPasajeros(rutaId: number) {
     const boletos = await obtenerBoletosPorRuta(rutaId)
 
-    const pagados = boletos.filter((boleto: any) => String(boleto.Estado) === 'Pagado').length
-    const enViaje = boletos.filter((boleto: any) => String(boleto.Estado) === 'En Viaje').length
-    const finalizados = boletos.filter((boleto: any) => String(boleto.Estado) === 'Finalizado').length
-    const rechazados = boletos.filter((boleto: any) => String(boleto.Estado) === 'Rechazado').length
+    const pagados = boletos.filter((boleto: any) => String(boleto.Estado) === 'Emitido').length
+    const enViaje = boletos.filter((boleto: any) => String(boleto.Estado) === 'Validado').length
+    const finalizados = 0 // No distinguible en DB
+    const rechazados = boletos.filter((boleto: any) => String(boleto.Estado) === 'Cancelado').length
 
     pasajeros.value = {
       total: boletos.length,
@@ -537,25 +537,21 @@ export function useChoferRuta() {
 
       const estadoBoleto = String(getField(boleto, 'Estado')) as EstadoBoleto
 
-      if (estadoBoleto === 'En Viaje') {
+      if (estadoBoleto === 'Validado') {
         throw new Error('Este boleto ya fue escaneado.')
       }
 
-      if (estadoBoleto === 'Finalizado') {
-        throw new Error('Este boleto ya fue finalizado.')
+      if (estadoBoleto === 'Cancelado') {
+        throw new Error('Este boleto fue cancelado.')
       }
 
-      if (estadoBoleto === 'Rechazado') {
-        throw new Error('Este boleto fue rechazado.')
-      }
-
-      if (estadoBoleto !== 'Pagado') {
-        throw new Error(`No se puede validar un boleto en estado ${estadoBoleto}.`)
+      if (estadoBoleto !== 'Emitido') {
+        throw new Error(`Estado de boleto no válido para abordar: ${estadoBoleto}`)
       }
 
       const { error: updateError } = await supabase
         .from('Boletos')
-        .update({ Estado: 'En Viaje' })
+        .update({ Estado: 'Validado' })
         .eq('Id', getField(boleto, 'Id'))
 
       if (updateError) {
@@ -650,30 +646,15 @@ export function useChoferRuta() {
   async function actualizarBoletosAlFinalizar(rutaId: number) {
     const boletos = await obtenerBoletosPorRuta(rutaId)
 
-    const boletosEnViaje = boletos
-      .filter((boleto: any) => String(boleto.Estado) === 'En Viaje')
+    const boletosPendientes = boletos
+      .filter((boleto: any) => String(boleto.Estado) === 'Emitido')
       .map((boleto: any) => boleto.Id)
 
-    const boletosPagados = boletos
-      .filter((boleto: any) => String(boleto.Estado) === 'Pagado')
-      .map((boleto: any) => boleto.Id)
-
-    if (boletosEnViaje.length > 0) {
-      const { error: finalizadosError } = await supabase
-        .from('Boletos')
-        .update({ Estado: 'Finalizado' })
-        .in('Id', boletosEnViaje)
-
-      if (finalizadosError) {
-        throw finalizadosError
-      }
-    }
-
-    if (boletosPagados.length > 0) {
+    if (boletosPendientes.length > 0) {
       const { error: rechazadosError } = await supabase
         .from('Boletos')
-        .update({ Estado: 'Rechazado' })
-        .in('Id', boletosPagados)
+        .update({ Estado: 'Cancelado' })
+        .in('Id', boletosPendientes)
 
       if (rechazadosError) {
         throw rechazadosError

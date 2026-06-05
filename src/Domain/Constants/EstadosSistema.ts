@@ -9,13 +9,21 @@ export const ESTADOS_RUTA = [
 export type EstadoRuta = typeof ESTADOS_RUTA[number]
 
 export const ESTADOS_BOLETO = [
-  'Pagado',
-  'En Viaje',
-  'Finalizado',
-  'Rechazado',
+  'Emitido',
+  'Validado',
+  'Cancelado',
 ] as const
 
 export type EstadoBoleto = typeof ESTADOS_BOLETO[number]
+
+export const ESTADOS_VENTA = [
+  'Pendiente',
+  'AprobadaPago',
+  'Confirmada',
+  'Cancelada',
+] as const
+
+export type EstadoVenta = typeof ESTADOS_VENTA[number]
 
 export const ESTADOS_BUS = [
   'Activo',
@@ -32,6 +40,10 @@ export function esEstadoRutaValido(estado: string): estado is EstadoRuta {
 
 export function esEstadoBoletoValido(estado: string): estado is EstadoBoleto {
   return ESTADOS_BOLETO.includes(estado as EstadoBoleto)
+}
+
+export function esEstadoVentaValido(estado: string): estado is EstadoVenta {
+  return ESTADOS_VENTA.includes(estado as EstadoVenta)
 }
 
 export function esEstadoBusValido(estado: string): estado is EstadoBus {
@@ -52,10 +64,20 @@ export function getEstadoRutaLabel(estado: EstadoRuta): string {
 
 export function getEstadoBoletoLabel(estado: EstadoBoleto): string {
   const labels: Record<EstadoBoleto, string> = {
-    Pagado: 'Pagado',
-    'En Viaje': 'En viaje',
-    Finalizado: 'Finalizado',
-    Rechazado: 'Rechazado',
+    Emitido: 'Emitido (Pagado)',
+    Validado: 'Validado (En Viaje)',
+    Cancelado: 'Cancelado/Rechazado',
+  }
+
+  return labels[estado]
+}
+
+export function getEstadoVentaLabel(estado: EstadoVenta): string {
+  const labels: Record<EstadoVenta, string> = {
+    Pendiente: 'Pendiente de Verificación',
+    AprobadaPago: 'Pago Aprobado',
+    Confirmada: 'Venta Confirmada',
+    Cancelada: 'Venta Cancelada',
   }
 
   return labels[estado]

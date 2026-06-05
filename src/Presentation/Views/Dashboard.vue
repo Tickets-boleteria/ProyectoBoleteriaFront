@@ -271,7 +271,7 @@
             </p>
 
             <p class="mt-2 inline-flex rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700">
-              {{ proximoViaje.estado || 'Pagado' }}
+              {{ proximoViaje.estado || 'Emitido' }}
             </p>
 
             <router-link

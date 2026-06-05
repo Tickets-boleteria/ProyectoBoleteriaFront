@@ -48,31 +48,23 @@ export function useControlBoletos() {
 
       const estado = String(boleto.Estado) as EstadoBoleto
 
-      if (estado === 'En Viaje') {
+      if (estado === 'Validado') {
         return {
           ok: false,
-          mensaje: 'Este boleto ya fue escaneado y está en viaje.',
+          mensaje: 'Este boleto ya fue escaneado o ya fue utilizado.',
           boleto,
         }
       }
 
-      if (estado === 'Finalizado') {
+      if (estado === 'Cancelado') {
         return {
           ok: false,
-          mensaje: 'Este boleto ya fue finalizado.',
+          mensaje: 'Este boleto fue cancelado o rechazado.',
           boleto,
         }
       }
 
-      if (estado === 'Rechazado') {
-        return {
-          ok: false,
-          mensaje: 'Este boleto fue rechazado porque no fue escaneado a tiempo.',
-          boleto,
-        }
-      }
-
-      if (estado !== 'Pagado') {
+      if (estado !== 'Emitido') {
         return {
           ok: false,
           mensaje: `No se puede abordar un boleto en estado ${estado}.`,
@@ -92,7 +84,7 @@ export function useControlBoletos() {
 
       const { data, error: updateError } = await supabase
         .from('Boletos')
-        .update({ Estado: 'En Viaje' })
+        .update({ Estado: 'Validado' })
         .eq('Id', boleto.Id)
         .select()
         .single()
@@ -188,22 +180,22 @@ export function useControlBoletos() {
       const boletos = await obtenerBoletosPorRuta(rutaId)
 
       const boletosPagados = boletos
-        .filter((boleto: any) => String(boleto.Estado) === 'Pagado')
+        .filter((boleto: any) => String(boleto.Estado) === 'Emitido')
         .map((boleto: any) => boleto.Id)
 
       if (boletosPagados.length === 0) {
-        success.value = 'No hay boletos pagados pendientes de escaneo.'
+        success.value = 'No hay boletos pendientes de escaneo.'
         return
       }
 
       const { error: err } = await supabase
         .from('Boletos')
-        .update({ Estado: 'Rechazado' })
+        .update({ Estado: 'Cancelado' })
         .in('Id', boletosPagados)
 
       if (err) throw err
 
-      success.value = 'Boletos pagados no escaneados fueron rechazados.'
+      success.value = 'Boletos no escaneados fueron cancelados.'
     } catch (err: any) {
       error.value = err.message || 'No se pudieron rechazar los boletos.'
     } finally {
@@ -212,35 +204,9 @@ export function useControlBoletos() {
   }
 
   async function finalizarBoletosEnViaje(rutaId: number) {
-    loading.value = true
-    error.value = ''
-    success.value = ''
-
-    try {
-      const boletos = await obtenerBoletosPorRuta(rutaId)
-
-      const boletosEnViaje = boletos
-        .filter((boleto: any) => String(boleto.Estado) === 'En Viaje')
-        .map((boleto: any) => boleto.Id)
-
-      if (boletosEnViaje.length === 0) {
-        success.value = 'No hay boletos en viaje para finalizar.'
-        return
-      }
-
-      const { error: err } = await supabase
-        .from('Boletos')
-        .update({ Estado: 'Finalizado' })
-        .in('Id', boletosEnViaje)
-
-      if (err) throw err
-
-      success.value = 'Boletos en viaje finalizados correctamente.'
-    } catch (err: any) {
-      error.value = err.message || 'No se pudieron finalizar los boletos.'
-    } finally {
-      loading.value = false
-    }
+    // NOTA: En la base de datos actual, 'Validado' es el estado final.
+    // No existe un estado 'Finalizado' separado.
+    success.value = 'Los boletos validados se consideran completados al finalizar la ruta.'
   }
 
   async function obtenerBoletosPorRuta(rutaId: number) {
@@ -267,10 +233,10 @@ export function useControlBoletos() {
 
     return {
       total: boletos.length,
-      pagados: boletos.filter((b: any) => String(b.Estado) === 'Pagado').length,
-      enViaje: boletos.filter((b: any) => String(b.Estado) === 'En Viaje').length,
-      finalizados: boletos.filter((b: any) => String(b.Estado) === 'Finalizado').length,
-      rechazados: boletos.filter((b: any) => String(b.Estado) === 'Rechazado').length,
+      pagados: boletos.filter((b: any) => String(b.Estado) === 'Emitido').length,
+      enViaje: boletos.filter((b: any) => String(b.Estado) === 'Validado').length,
+      finalizados: 0, // No distinguible en DB
+      rechazados: boletos.filter((b: any) => String(b.Estado) === 'Cancelado').length,
     }
   }
 

@@ -3,6 +3,12 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { supabase } from '../../../Infrastructure/Api/supabaseClient'
 import { useVentaDescuento } from '../../Composables/useVentaDescuento'
 import { VenderBoleto } from '../../../Application/UseCases/VenderBoleto'
+import { SupabaseVentasRepository } from '../../../Infrastructure/Repositories/SupabaseVentasRepository'
+import { SupabaseBoletosRepository } from '../../../Infrastructure/Repositories/SupabaseBoletosRepository'
+import { ConfirmarCompra } from '../../../Application/UseCases/ConfirmarCompra'
+import { SupabasePaymentRepository } from '../../../Infrastructure/Repositories/SupabasePaymentRepository'
+import { PrepararPagoStripe } from '../../../Application/UseCases/PrepararPagoStripe'
+import StripePaymentForm from '../../Components/StripePaymentForm.vue'
 
 interface RutaDisponible {
   id: number
@@ -189,6 +195,28 @@ const pasajero = reactive({
   metodoPago: 'efectivo' as 'efectivo' | 'transferencia' | 'tarjeta',
 })
 
+const clientSecret = ref('')
+const stripeLoading = ref(false)
+const paymentRepo = new SupabasePaymentRepository()
+const prepararPagoStripe = new PrepararPagoStripe(paymentRepo)
+
+async function iniciarPagoTarjeta() {
+  if (!resultado.value) {
+    errorMessage.value = 'Calcula el precio final antes de iniciar el pago con tarjeta.'
+    return
+  }
+  stripeLoading.value = true
+  try {
+    const total = resultado.value.precioFinal * pasajero.cantidadBoletos
+    const res = await prepararPagoStripe.ejecutar(total)
+    clientSecret.value = res.clientSecret
+  } catch (err: any) {
+    errorMessage.value = 'No se pudo iniciar Stripe: ' + err.message
+  } finally {
+    stripeLoading.value = false
+  }
+}
+
 // derivar edad y tieneDiscapacidad desde tipoDescuento (UI más simple)
 function aplicarTipoDescuento() {
   tieneDiscapacidad.value = pasajero.tipoDescuento === 'discapacidad'
@@ -237,46 +265,63 @@ const ventaConfirmada = ref<null | {
   precioFinal: number
   total: number
   fecha: string
+  metodoPago: string
 }>(null)
 
-function confirmarVenta() {
+async function confirmarVenta(stripePaymentIntent?: any) {
   if (!rutaSeleccionada.value) return
   if (!cedula.value || !pasajero.nombres || !pasajero.apellidos) {
     errorMessage.value = 'Completa los datos del pasajero antes de confirmar.'
     return
   }
 
-  const venderBoletoUseCase = new VenderBoleto()
-  
   try {
-    // Validamos la venta con el caso de uso (Capa de Aplicación)
-    // El ID de la terminal principal es null (por defecto) o podemos pasar un ID fijo si existiera.
-    // Para simplificar, asumimos que destinoSeleccionadoId === null significa Terminal Principal.
-    venderBoletoUseCase.ejecutar({
-      frecuenciaId: rutaSeleccionada.value.frecuenciaId,
-      esDirecto: rutaSeleccionada.value.esDirecto,
-      paradaDestinoId: destinoSeleccionadoId.value ?? 0, // 0 representa la terminal principal en este ejemplo
-      terminalDestinoId: 0,
-      pasajeroCedula: cedula.value,
-      pasajeroNombres: pasajero.nombres,
-      pasajeroApellidos: pasajero.apellidos,
-      cantidadBoletos: pasajero.cantidadBoletos
-    })
+    // 1. Obtener un asiento disponible (simplificado para venta rápida de oficinista)
+    const { data: asientos } = await supabase
+      .from('Asientos')
+      .select('Id')
+      .eq('BusId', rutaSeleccionada.value.busId)
+      .limit(pasajero.cantidadBoletos)
+    
+    if (!asientos || asientos.length < pasajero.cantidadBoletos) {
+      throw new Error('No hay asientos suficientes disponibles.')
+    }
+
+    const asientoIds = asientos.map(a => Number(getFieldValue(a, 'Id') ?? getFieldValue(a, 'id')))
+
+    const ventaRepo = new SupabaseVentasRepository()
+    const boletosRepo = new SupabaseBoletosRepository()
+    const confirmarUC = new ConfirmarCompra(ventaRepo, boletosRepo)
 
     const precioFinal = resultado.value?.precioFinal ?? rutaSeleccionada.value.precioBase
-    const total = precioFinal * pasajero.cantidadBoletos
+    
+    await confirmarUC.ejecutar({
+      ruta: rutaSeleccionada.value,
+      asientos: asientoIds,
+      precioUnitario: precioFinal,
+      metodoPago: pasajero.metodoPago === 'tarjeta' ? 'Tarjeta' : pasajero.metodoPago === 'transferencia' ? 'Transferencia' : 'Efectivo',
+      stripeId: stripePaymentIntent?.id,
+      nombres: pasajero.nombres,
+      apellidos: pasajero.apellidos,
+      cedula: cedula.value,
+      fechaNacimiento: new Date(Date.now() - (edad.value || 30) * 31536000000).toISOString().slice(0, 10),
+      usuarioId: null // Oficinista vende
+    })
+
     ventaConfirmada.value = {
       codigo: null,
       ruta: rutaSeleccionada.value,
       pasajero: { ...pasajero },
       precioFinal,
-      total,
+      total: precioFinal * pasajero.cantidadBoletos,
       fecha: new Date().toISOString(),
+      metodoPago: pasajero.metodoPago
     }
-  } catch (err: any) {
-    errorMessage.value = err.message || 'Error al validar la venta.'
-  }
-}
+    } catch (err: any) {
+    console.error('ERROR COMPLETO EN CONFIRMAR_VENTA_OFICINISTA:', err);
+    errorMessage.value = err.message || 'Error al procesar la venta.';
+    }
+    }
 
 function nuevaVenta() {
   ventaConfirmada.value = null
@@ -289,6 +334,7 @@ function nuevaVenta() {
   pasajero.tipoDescuento = 'ninguno'
   pasajero.cantidadBoletos = 1
   pasajero.metodoPago = 'efectivo'
+  clientSecret.value = ''
 }
 
 function imprimir() { window.print() }
@@ -310,7 +356,9 @@ watch(() => filtros.fecha, () => {
         <span class="text-4xl">✓</span>
         <div>
           <p class="text-emerald-100 text-sm font-bold uppercase tracking-wider">Venta registrada</p>
-          <h2 class="text-2xl font-black">Comprobante pendiente de registro</h2>
+          <h2 class="text-2xl font-black">
+            {{ ventaConfirmada.metodoPago === 'tarjeta' ? 'Pago con tarjeta procesado' : 'Comprobante de venta generado' }}
+          </h2>
         </div>
       </div>
 
@@ -320,7 +368,7 @@ watch(() => filtros.fecha, () => {
           <p class="text-xs text-slate-500">Boletería Interprovincial · Comprobante de venta</p>
         </div>
         <dl class="grid grid-cols-2 gap-3 text-sm mb-4">
-          <dt class="font-bold text-slate-500">Código</dt>      <dd class="font-mono">Pendiente de registro</dd>
+          <dt class="font-bold text-slate-500">Estado</dt>      <dd class="font-black text-blue-700">PAGADO</dd>
           <dt class="font-bold text-slate-500">Fecha emisión</dt><dd>{{ new Date(ventaConfirmada.fecha).toLocaleString('es-EC') }}</dd>
           <dt class="font-bold text-slate-500">Pasajero</dt>    <dd>{{ ventaConfirmada.pasajero.nombres }} {{ ventaConfirmada.pasajero.apellidos }}</dd>
           <dt class="font-bold text-slate-500">Cédula</dt>      <dd>{{ cedula }}</dd>
@@ -328,7 +376,7 @@ watch(() => filtros.fecha, () => {
           <dt class="font-bold text-slate-500">Salida</dt>      <dd>{{ ventaConfirmada.ruta.fecha }} · {{ ventaConfirmada.ruta.hora }}</dd>
           <dt class="font-bold text-slate-500">Bus</dt>         <dd>{{ ventaConfirmada.ruta.busPlaca }}</dd>
           <dt class="font-bold text-slate-500">Boletos</dt>     <dd>{{ ventaConfirmada.pasajero.cantidadBoletos }}</dd>
-          <dt class="font-bold text-slate-500">Método pago</dt> <dd>{{ ventaConfirmada.pasajero.metodoPago }}</dd>
+          <dt class="font-bold text-slate-500">Método pago</dt> <dd class="uppercase">{{ ventaConfirmada.metodoPago }}</dd>
         </dl>
         <div class="rounded-xl bg-blue-50 p-4 mb-4 border border-blue-200">
           <div class="flex justify-between text-sm"><span>Precio unitario</span> <span class="font-bold">${{ ventaConfirmada.precioFinal.toFixed(2) }}</span></div>
@@ -353,30 +401,6 @@ watch(() => filtros.fecha, () => {
         {{ error }}
       </div>
 
-      <div v-if="loading" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-        Cargando rutas reales desde la base de datos...
-      </div>
-
-      <!-- Stepper visual -->
-      <ol class="flex items-center gap-4 text-sm">
-        <li class="flex items-center gap-2">
-          <span class="flex h-8 w-8 items-center justify-center rounded-full font-black"
-            :class="rutaSeleccionada ? 'bg-emerald-500 text-white' : 'bg-blue-600 text-white'">1</span>
-          <span class="font-bold" :class="rutaSeleccionada ? 'text-emerald-600' : 'text-blue-700'">Buscar ruta</span>
-        </li>
-        <span class="text-slate-300">›</span>
-        <li class="flex items-center gap-2">
-          <span class="flex h-8 w-8 items-center justify-center rounded-full font-black"
-            :class="rutaSeleccionada ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500'">2</span>
-          <span class="font-bold" :class="rutaSeleccionada ? 'text-blue-700' : 'text-slate-400'">Registrar pasajero</span>
-        </li>
-        <span class="text-slate-300">›</span>
-        <li class="flex items-center gap-2">
-          <span class="flex h-8 w-8 items-center justify-center rounded-full font-black bg-slate-200 text-slate-500">3</span>
-          <span class="font-bold text-slate-400">Comprobante</span>
-        </li>
-      </ol>
-
       <!-- ===== PASO 1: BÚSQUEDA ===== -->
       <section v-if="!rutaSeleccionada" class="space-y-4">
         <div class="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur">
@@ -393,10 +417,6 @@ watch(() => filtros.fecha, () => {
             <div class="rounded-2xl bg-slate-50 p-3">
               <label class="text-xs font-bold text-slate-700">Fecha</label>
               <input v-model="filtros.fecha" type="date" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
-            </div>
-            <div class="rounded-2xl bg-slate-50 p-3">
-              <label class="text-xs font-bold text-slate-700">Hora desde</label>
-              <input v-model="filtros.hora" type="time" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
             </div>
           </div>
         </div>
@@ -420,69 +440,17 @@ watch(() => filtros.fecha, () => {
               Seleccionar
             </button>
           </article>
-          <div v-if="resultados.length === 0" class="rounded-2xl bg-white p-8 text-center text-slate-500 border border-slate-100">
-            No hay rutas disponibles con esos filtros. Ajusta la búsqueda.
-          </div>
         </div>
       </section>
 
       <!-- ===== PASO 2: PASAJERO ===== -->
       <section v-else class="space-y-4">
-        <div class="rounded-2xl bg-blue-50 border border-blue-200 p-4 flex flex-wrap items-center justify-between gap-3">
+        <div class="rounded-2xl bg-blue-50 border border-blue-200 p-4 flex justify-between items-center">
           <div>
-            <p class="text-xs font-bold uppercase text-blue-600 tracking-wider">Ruta seleccionada</p>
-            <p class="font-black text-slate-900">{{ rutaSeleccionada.origen }} → {{ rutaSeleccionada.destino }} · {{ rutaSeleccionada.fecha }} · {{ rutaSeleccionada.hora }}</p>
+            <p class="text-xs font-bold uppercase text-blue-600">Ruta seleccionada</p>
+            <p class="font-black text-slate-900">{{ rutaSeleccionada.origen }} → {{ rutaSeleccionada.destino }}</p>
           </div>
-          <button @click="rutaSeleccionada = null" class="text-sm font-bold text-blue-700 underline underline-offset-4">Cambiar ruta</button>
-        </div>
-
-        <div class="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur">
-          <h3 class="text-lg font-black text-slate-900 mb-2">Destino del viaje</h3>
-          
-          <!-- Aviso visual de tipo de ruta -->
-          <div v-if="rutaSeleccionada" class="mb-4">
-            <div v-if="rutaSeleccionada.esDirecto" class="p-3 border-2 border-rose-200 bg-rose-50 rounded-xl">
-              <p class="text-rose-700 font-black text-base italic">
-                ⚡ VIAJE DIRECTO: Bloqueada la venta en paradas intermedias.
-              </p>
-            </div>
-            <div v-else class="p-3 border-2 border-emerald-200 bg-emerald-50 rounded-xl">
-              <p class="text-emerald-700 font-bold text-base">
-                🚌 Viaje Normal: Se permite vender paradas intermedias.
-              </p>
-            </div>
-          </div>
-
-          <div class="rounded-2xl bg-slate-50 p-4">
-            <label class="text-xs font-bold text-slate-700">Seleccionar parada de destino</label>
-            <div class="mt-2 space-y-2">
-              <label class="flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all"
-                :class="!destinoSeleccionadoId ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'">
-                <input type="radio" :value="null" v-model="destinoSeleccionadoId" class="hidden" @change="destino = rutaSeleccionada!.destino"/>
-                <span class="font-bold text-slate-900">{{ rutaSeleccionada.destino }} (Terminal Principal)</span>
-              </label>
-
-              <template v-if="paradasIntermedias.length > 0">
-                <p class="text-xs font-bold text-slate-400 uppercase tracking-widest mt-4">Paradas intermedias</p>
-                <div class="grid gap-2">
-                  <label v-for="p in paradasIntermedias" :key="p.id"
-                    class="flex items-center justify-between p-3 rounded-xl border-2 transition-all"
-                    :class="[
-                      destinoSeleccionadoId === p.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white',
-                      rutaSeleccionada.esDirecto ? 'opacity-50 cursor-not-allowed bg-slate-100' : 'cursor-pointer hover:border-blue-300'
-                    ]">
-                    <div class="flex items-center gap-3">
-                      <input type="radio" :value="p.id" v-model="destinoSeleccionadoId" 
-                        :disabled="rutaSeleccionada.esDirecto" class="hidden"
-                        @change="destino = p.ciudad"/>
-                      <span class="font-bold text-slate-700">{{ p.ciudad }}</span>
-                    </div>
-                    <span v-if="rutaSeleccionada.esDirecto" class="text-[10px] font-black uppercase text-rose-600 bg-rose-50 px-2 py-1 rounded-lg">No disponible en ruta directa</span>
-                  </label>
-                </div>
-              </template>
-            </div>
-          </div>
+          <button @click="rutaSeleccionada = null" class="text-sm font-bold text-blue-700 underline">Cambiar ruta</button>
         </div>
 
         <div class="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur">
@@ -493,10 +461,6 @@ watch(() => filtros.fecha, () => {
               <input v-model="cedula" maxlength="10" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
             </div>
             <div class="rounded-2xl bg-slate-50 p-3">
-              <label class="text-xs font-bold text-slate-700">Teléfono</label>
-              <input v-model="pasajero.telefono" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
-            </div>
-            <div class="rounded-2xl bg-slate-50 p-3">
               <label class="text-xs font-bold text-slate-700">Nombres *</label>
               <input v-model="pasajero.nombres" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
             </div>
@@ -504,16 +468,12 @@ watch(() => filtros.fecha, () => {
               <label class="text-xs font-bold text-slate-700">Apellidos *</label>
               <input v-model="pasajero.apellidos" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
             </div>
-            <div class="rounded-2xl bg-slate-50 p-3">
-              <label class="text-xs font-bold text-slate-700">Número de boletos</label>
-              <input v-model.number="pasajero.cantidadBoletos" type="number" min="1" max="10" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
-            </div>
-            <div class="rounded-2xl bg-slate-50 p-3">
+             <div class="rounded-2xl bg-slate-50 p-3">
               <label class="text-xs font-bold text-slate-700">Método de pago</label>
               <select v-model="pasajero.metodoPago" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1">
-                <option value="efectivo">Efectivo</option>
-                <option value="transferencia">Transferencia</option>
-                <option value="tarjeta">Tarjeta</option>
+                <option value="efectivo">💵 Efectivo</option>
+                <option value="transferencia">🏦 Transferencia</option>
+                <option value="tarjeta">💳 Tarjeta (Stripe)</option>
               </select>
             </div>
             <div class="rounded-2xl bg-slate-50 p-3 sm:col-span-2">
@@ -521,12 +481,12 @@ watch(() => filtros.fecha, () => {
               <div class="grid gap-2 sm:grid-cols-4">
                 <label v-for="opt in [
                   { v: 'ninguno', l: 'Ninguno', emoji: '🎫' },
-                  { v: 'nino', l: 'Niño (< 12)', emoji: '🧒' },
+                  { v: 'nino', l: 'Niño', emoji: '🧒' },
                   { v: 'discapacidad', l: 'Discapacidad', emoji: '♿' },
                   { v: 'tercera_edad', l: 'Tercera edad', emoji: '🧓' },
                 ]" :key="opt.v"
                   class="rounded-xl border-2 cursor-pointer flex items-center gap-2 p-3 transition-all"
-                  :class="pasajero.tipoDescuento === opt.v ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:border-blue-300'">
+                  :class="pasajero.tipoDescuento === opt.v ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'">
                   <input v-model="pasajero.tipoDescuento" type="radio" :value="opt.v" class="hidden"/>
                   <span class="text-xl">{{ opt.emoji }}</span>
                   <span class="text-sm font-bold">{{ opt.l }}</span>
@@ -535,23 +495,37 @@ watch(() => filtros.fecha, () => {
             </div>
           </div>
 
-          <button @click="calcularDescuento" class="mt-5 rounded-2xl bg-emerald-600 px-6 py-3 font-black text-white shadow-xl shadow-emerald-100 hover:bg-emerald-700">
+          <button @click="calcularDescuento" class="mt-5 rounded-2xl bg-emerald-600 px-6 py-3 font-black text-white shadow-xl hover:bg-emerald-700">
             Calcular precio final
           </button>
 
           <div v-if="errorMessage" class="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{{ errorMessage }}</div>
 
           <div v-if="resultado" class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-            <p class="font-bold text-emerald-700">Categoría: {{ resultado.categoria }}</p>
-            <p class="text-sm">Descuento: <strong>{{ (resultado.porcentajeDescuento * 100).toFixed(0) }}%</strong> · Ahorro: <strong>${{ resultado.montoDescuento.toFixed(2) }}</strong></p>
-            <p class="text-lg mt-2">Precio final por boleto: <strong class="text-emerald-700">${{ resultado.precioFinal.toFixed(2) }}</strong></p>
-            <p class="text-xl mt-1">Total ({{ pasajero.cantidadBoletos }} boletos): <strong class="text-emerald-700">${{ (resultado.precioFinal * pasajero.cantidadBoletos).toFixed(2) }}</strong></p>
+            <p class="text-lg">Precio por boleto: <strong class="text-emerald-700">${{ resultado.precioFinal.toFixed(2) }}</strong></p>
           </div>
 
-          <div class="mt-5 flex gap-3">
-            <button @click="confirmarVenta" :disabled="!resultado"
-              class="rounded-2xl bg-blue-600 px-6 py-3 font-black text-white shadow-xl shadow-blue-100 hover:bg-blue-700 disabled:opacity-50">
-              Confirmar venta y generar comprobante
+          <!-- PAGO CON TARJETA (STRIPE) -->
+          <div v-if="pasajero.metodoPago === 'tarjeta' && resultado" class="mt-6 p-6 border-2 border-blue-100 rounded-[2rem] bg-slate-50/50">
+            <div v-if="!clientSecret" class="text-center">
+              <button @click="iniciarPagoTarjeta" :disabled="stripeLoading" class="rounded-2xl bg-blue-600 px-8 py-3 font-black text-white shadow-xl hover:bg-blue-700 flex items-center gap-3 mx-auto">
+                <span v-if="stripeLoading" class="w-5 h-5 border-3 border-white/30 border-t-white animate-spin rounded-full"></span>
+                {{ stripeLoading ? 'Conectando...' : 'Habilitar Terminal de Pago' }}
+              </button>
+            </div>
+            <div v-else>
+               <StripePaymentForm 
+                  :client-secret="clientSecret" 
+                  :amount="resultado.precioFinal * pasajero.cantidadBoletos" 
+                  @success="confirmarVenta"
+                />
+            </div>
+          </div>
+
+          <div v-else class="mt-5">
+            <button @click="confirmarVenta()" :disabled="!resultado"
+              class="w-full rounded-2xl bg-blue-600 px-6 py-3 font-black text-white shadow-xl hover:bg-blue-700 disabled:opacity-50">
+              Registrar venta (Efectivo/Transf)
             </button>
           </div>
         </div>
@@ -559,10 +533,3 @@ watch(() => filtros.fecha, () => {
     </template>
   </div>
 </template>
-
-<style scoped>
-@media print {
-  :global(aside), :global(header) { display: none !important; }
-  :global(main) { margin: 0 !important; }
-}
-</style>

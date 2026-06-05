@@ -18,12 +18,15 @@ export class SupabaseVentasRepository implements IVentaRepository {
       .select('Id')
       .single()
     
-    if (error) throw error
+    if (error) {
+      console.error('ERROR AL INSERTAR VENTA EN SUPABASE:', error);
+      throw new Error(`Error en base de datos: ${error.message} (${error.hint || ''})`);
+    }
     
     // Devolvemos el ID de forma robusta
-    const id = Number(data?.Id ?? (data as any)?.id)
-    if (!id) throw new Error('Error al recuperar el ID de la venta creada')
+    const id = data?.Id ?? data?.id ?? (data as any)?.ID;
+    if (!id) throw new Error('Error al recuperar el ID de la venta creada');
     
-    return id
+    return Number(id)
   }
 }

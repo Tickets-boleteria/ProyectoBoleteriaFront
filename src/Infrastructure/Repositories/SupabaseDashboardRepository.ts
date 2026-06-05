@@ -171,7 +171,7 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
 
     await supabase
       .from('Boletos')
-      .update({ Estado: 'Rechazado' })
+      .update({ Estado: 'Cancelado' })
       .in('Id', boletosVencidos)
   }
 
@@ -242,15 +242,15 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
     const totalBoletos = boletos.length
 
     const totalGastado = boletos
-      .filter(boleto => ['Pagado', 'En Viaje', 'Finalizado'].includes(String(getFieldValue(boleto, 'Estado'))))
+      .filter(boleto => ['Emitido', 'Validado'].includes(String(getFieldValue(boleto, 'Estado'))))
       .reduce((suma, boleto) => suma + Number(getFieldValue(boleto, 'PrecioFinal') ?? 0), 0)
 
     const activos = boletos.filter(boleto =>
-      ['Pagado', 'En Viaje'].includes(String(getFieldValue(boleto, 'Estado')))
+      ['Emitido', 'Validado'].includes(String(getFieldValue(boleto, 'Estado')))
     ).length
 
     const rechazados = boletos.filter(boleto =>
-      String(getFieldValue(boleto, 'Estado')) === 'Rechazado'
+      String(getFieldValue(boleto, 'Estado')) === 'Cancelado'
     ).length
 
     const gastosMeses = this.construirGastosMensuales(boletos, inicioMeses)
@@ -416,11 +416,11 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
       })
 
     const boletosVendidosSemana = boletosSemana
-      .filter(boleto => ['Pagado', 'En Viaje', 'Finalizado'].includes(String(getFieldValue(boleto, 'Estado'))))
+      .filter(boleto => ['Emitido', 'Validado'].includes(String(getFieldValue(boleto, 'Estado'))))
       .length
 
     const recaudacionSemana = boletosSemana
-      .filter(boleto => ['Pagado', 'En Viaje', 'Finalizado'].includes(String(getFieldValue(boleto, 'Estado'))))
+      .filter(boleto => ['Emitido', 'Validado'].includes(String(getFieldValue(boleto, 'Estado'))))
       .reduce((suma, boleto) => suma + Number(getFieldValue(boleto, 'PrecioFinal') ?? 0), 0)
 
     const rutasActivasHoy = rutasHoy
@@ -570,7 +570,7 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
     }
 
     const pasajerosEsperados = boletos
-      .filter(boleto => ['Pagado', 'En Viaje'].includes(String(getFieldValue(boleto, 'Estado'))))
+      .filter(boleto => ['Emitido', 'Validado'].includes(String(getFieldValue(boleto, 'Estado'))))
       .length
 
     const pasajerosEscaneados = boletos
@@ -734,7 +734,7 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
           const createdAt = getFieldValue(boleto, 'CreatedAt')
           return createdAt ? new Date(createdAt).toISOString().slice(0, 7) === prefix : false
         })
-        .filter(boleto => ['Pagado', 'En Viaje', 'Finalizado'].includes(String(getFieldValue(boleto, 'Estado'))))
+        .filter(boleto => ['Emitido', 'Validado'].includes(String(getFieldValue(boleto, 'Estado'))))
         .reduce((suma, boleto) => suma + Number(getFieldValue(boleto, 'PrecioFinal') ?? 0), 0)
 
       return {
@@ -749,7 +749,7 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
       const estado = String(getFieldValue(boleto, 'Estado'))
       const fechaViaje = this.extraerFechaViaje(boleto)
 
-      return ['Pagado', 'En Viaje'].includes(estado) && fechaViaje && fechaViaje >= todayKey
+      return ['Emitido', 'Validado'].includes(estado) && fechaViaje && fechaViaje >= todayKey
     })
 
     if (!candidato) return null
@@ -761,7 +761,7 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
       destino: String(getNested(candidato, ['Ventas', 'Rutas', 'Frecuencias', 'CiudadDestino']) ?? 'Destino'),
       cooperativa: String(getNested(candidato, ['Ventas', 'Rutas', 'Frecuencias', 'Cooperativas', 'Nombre']) ?? 'Cooperativa'),
       asiento: String(this.formatearAsiento(candidato)),
-      estado: String(getFieldValue(candidato, 'Estado') ?? 'Pagado'),
+      estado: String(getFieldValue(candidato, 'Estado') ?? 'Emitido'),
     }
   }
 

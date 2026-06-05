@@ -811,28 +811,19 @@ export function useRutas() {
   async function actualizarBoletosAlFinalizar(rutaId: number) {
     const boletos = await obtenerBoletosPorRuta(rutaId)
 
-    const boletosEnViaje = boletos
-      .filter((boleto: any) => String(boleto.Estado) === 'En Viaje')
+    const boletosValidados = boletos
+      .filter((boleto: any) => String(boleto.Estado) === 'Validado')
       .map((boleto: any) => boleto.Id)
 
-    const boletosPagadosNoEscaneados = boletos
-      .filter((boleto: any) => String(boleto.Estado) === 'Pagado')
+    const boletosEmitidosNoEscaneados = boletos
+      .filter((boleto: any) => String(boleto.Estado) === 'Emitido')
       .map((boleto: any) => boleto.Id)
 
-    if (boletosEnViaje.length > 0) {
-      const { error: boletosFinalizadosError } = await supabase
-        .from('Boletos')
-        .update({ Estado: 'Finalizado' })
-        .in('Id', boletosEnViaje)
-
-      if (boletosFinalizadosError) throw boletosFinalizadosError
-    }
-
-    if (boletosPagadosNoEscaneados.length > 0) {
+    if (boletosEmitidosNoEscaneados.length > 0) {
       const { error: boletosRechazadosError } = await supabase
         .from('Boletos')
-        .update({ Estado: 'Rechazado' })
-        .in('Id', boletosPagadosNoEscaneados)
+        .update({ Estado: 'Cancelado' })
+        .in('Id', boletosEmitidosNoEscaneados)
 
       if (boletosRechazadosError) throw boletosRechazadosError
     }

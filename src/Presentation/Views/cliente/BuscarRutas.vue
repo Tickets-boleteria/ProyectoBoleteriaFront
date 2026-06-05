@@ -5,6 +5,9 @@ import { useAuthStore } from '../../Store/authStore'
 import { SupabaseVentasRepository } from '../../../Infrastructure/Repositories/SupabaseVentasRepository'
 import { SupabaseBoletosRepository } from '../../../Infrastructure/Repositories/SupabaseBoletosRepository'
 import { ConfirmarCompra } from '../../../Application/UseCases/ConfirmarCompra'
+import { SupabasePaymentRepository } from '../../../Infrastructure/Repositories/SupabasePaymentRepository'
+import { PrepararPagoStripe } from '../../../Application/UseCases/PrepararPagoStripe'
+import StripePaymentForm from '../../Components/StripePaymentForm.vue'
 
 interface RutaDisponible {
   id: number
@@ -598,23 +601,42 @@ function toggleAsiento(a: { numero: string; ocupado: boolean }) {
 }
 
 // Paso 3: pago
-const captura = ref<string | null>(null)
+const metodoPago = ref<'Transferencia' | 'Tarjeta'>('Transferencia')
+const clientSecret = ref('')
+const stripeLoading = ref(false)
+const capture = ref<string | null>(null)
 const capturaArchivo = ref<File | null>(null)
 const referenciaPago = ref('')
-const cuentaOrigen = ref('')
 const nombresPasajero = ref('')
 const apellidosPasajero = ref('')
 const cedulaPasajero = ref('')
 const fechaNacimientoPasajero = ref('')
 const mostrarPago = ref(false)
-const BUCKET_COMPROBANTES = 'comprobantes'
+
+const paymentRepo = new SupabasePaymentRepository()
+const prepararPagoStripe = new PrepararPagoStripe(paymentRepo)
+
+async function iniciarPagoTarjeta() {
+  if (!rutaSeleccionada.value || asientosSeleccionados.value.length === 0) return
+  stripeLoading.value = true
+  try {
+    const total = precioSeleccionado.value * asientosSeleccionados.value.length
+    const res = await prepararPagoStripe.ejecutar(total)
+    clientSecret.value = res.clientSecret
+    metodoPago.value = 'Tarjeta'
+  } catch (err: any) {
+    error.value = 'No se pudo iniciar la pasarela de pagos: ' + err.message
+  } finally {
+    stripeLoading.value = false
+  }
+}
 
 function onCapturaUpload(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   capturaArchivo.value = file
   const reader = new FileReader()
-  reader.onload = ev => { captura.value = ev.target?.result as string }
+  reader.onload = ev => { capture.value = ev.target?.result as string }
   reader.readAsDataURL(file)
 }
 
@@ -626,26 +648,14 @@ const compraConfirmada = ref<null | {
   total: number
   captura: string | null
   referencia: string
-  cuenta?: string
+  metodoPago: string
 }>(null)
 
 const authStore = useAuthStore()
 
-async function confirmarCompra() {
+async function completarCompra(stripePaymentIntent?: any) {
   if (!rutaSeleccionada.value || asientosSeleccionados.value.length === 0) return
-  if (!tipoServicioSeleccionado.value) {
-    error.value = 'Selecciona un tipo de asiento antes de confirmar la compra.'
-    return
-  }
-  if (precioSeleccionado.value <= 0) {
-    error.value = 'El tipo de asiento seleccionado no tiene un precio configurado.'
-    return
-  }
-  if (!capturaArchivo.value) {
-    alert('Por favor adjunta la captura del pago para continuar.')
-    return
-  }
-
+  
   const nombres = nombresPasajero.value.trim() || String(authStore.user?.nombres ?? '').trim()
   const apellidos = apellidosPasajero.value.trim() || String(authStore.user?.apellidos ?? '').trim()
   const cedula = cedulaPasajero.value.trim() || String(authStore.user?.cedula ?? '').trim()
@@ -657,49 +667,31 @@ async function confirmarCompra() {
   }
 
   try {
-    // Resolver Ids de asientos desde números mostrados en UI
-    const { data: asientosRows, error: asientosError } = await supabase
+    const { data: asientosRows } = await supabase
       .from('Asientos')
       .select('Id, NumeroAsiento, BusId')
       .eq('BusId', rutaSeleccionada.value!.busId)
 
-    if (asientosError) throw new Error(asientosError.message)
-
-    const filas = asientosRows || []
     const asientoMap = new Map<string, number>()
-    for (const f of filas) {
+    for (const f of asientosRows || []) {
       const num = String(getFieldValue(f, 'NumeroAsiento') ?? getFieldValue(f, 'numeroasiento') ?? '')
       const id = Number(getFieldValue(f, 'Id') ?? getFieldValue(f, 'id') ?? 0)
       if (num && id) asientoMap.set(num.toString().padStart(2, '0'), id)
-      if (num && id) asientoMap.set(String(Number(num)), id)
     }
 
-    const asientoIds: number[] = []
-    for (const asientoNumero of asientosSeleccionados.value) {
-      const key = asientoNumero.toString().padStart(2, '0')
-      const asientoId = asientoMap.get(key) ?? asientoMap.get(String(Number(asientoNumero)))
-      if (!asientoId) throw new Error(`No se encontró el asiento ${asientoNumero}`)
-      asientoIds.push(asientoId)
-    }
+    const asientoIds = asientosSeleccionados.value.map(num => asientoMap.get(num.toString().padStart(2, '0'))!)
 
-    // Instanciar repositorios e invocar caso de uso
     const ventaRepo = new SupabaseVentasRepository()
     const boletosRepo = new SupabaseBoletosRepository()
-    // opcional: usar repositorio de auditoría si existe
-    let auditRepo: any = undefined
-    try {
-      const { SupabaseAuditoriaRepository } = await import('../../../Infrastructure/Repositories/SupabaseAuditoriaRepository')
-      auditRepo = new SupabaseAuditoriaRepository()
-    } catch (e) {
-      // no existe o falla, no es crítico
-    }
+    const confirmar = new ConfirmarCompra(ventaRepo, boletosRepo)
 
-    const confirmar = new ConfirmarCompra(ventaRepo, boletosRepo, auditRepo)
     const result = await confirmar.ejecutar({
       ruta: rutaSeleccionada.value!,
       asientos: asientoIds,
       precioUnitario: precioSeleccionado.value,
-      capturaArchivo: capturaArchivo.value as File,
+      capturaArchivo: capturaArchivo.value,
+      metodoPago: metodoPago.value,
+      stripeId: stripePaymentIntent?.id,
       nombres,
       apellidos,
       cedula,
@@ -713,48 +705,35 @@ async function confirmarCompra() {
       asientos: [...asientosSeleccionados.value],
       total: precioSeleccionado.value * asientosSeleccionados.value.length,
       captura: result.comprobanteUrl,
-      referencia: referenciaPago.value,
-      cuenta: cuentaOrigen.value,
+      referencia: stripePaymentIntent?.id || referenciaPago.value,
+      metodoPago: metodoPago.value
     }
 
     mostrarPago.value = false
-    asientosSeleccionados.value = []
-    asientosOcupados.value = []
-    captura.value = null
-    capturaArchivo.value = null
-    referenciaPago.value = ''
-    cuentaOrigen.value = ''
-    nombresPasajero.value = ''
-    apellidosPasajero.value = ''
-    fechaNacimientoPasajero.value = ''
-
+    resetUI()
   } catch (err: any) {
-    error.value = err.message || 'No fue posible registrar la compra.'
+    console.error('ERROR COMPLETO EN COMPLETAR_COMPRA:', err);
+    error.value = err.message || 'No fue posible registrar la compra.';
   }
 }
 
-function nuevaBusqueda() {
-  compraConfirmada.value = null
-  rutaSeleccionada.value = null
+function resetUI() {
   asientosSeleccionados.value = []
   asientosOcupados.value = []
-  asientosOcupadosPorTipo.NORMAL = []
-  asientosOcupadosPorTipo.VIP = []
-  asientosOcupadosPorTipo.EXECUTIVO = []
-  asientosDelBus.value = []
-  tipoServicioSeleccionado.value = ''
-  captura.value = null
+  capture.value = null
   capturaArchivo.value = null
   referenciaPago.value = ''
   nombresPasajero.value = ''
   apellidosPasajero.value = ''
   fechaNacimientoPasajero.value = ''
-  mostrarPago.value = false
+  clientSecret.value = ''
 }
 
-const formatoDuracion = (min: number) => {
-  const h = Math.floor(min / 60); const m = min % 60
-  return h ? `${h}h ${m}m` : `${m}m`
+function nuevaBusqueda() {
+  compraConfirmada.value = null
+  rutaSeleccionada.value = null
+  resetUI()
+  mostrarPago.value = false
 }
 
 const seleccionarRuta = async (ruta: RutaDisponible, tipoServicio: TipoServicio | '') => {
@@ -762,38 +741,17 @@ const seleccionarRuta = async (ruta: RutaDisponible, tipoServicio: TipoServicio 
     error.value = 'Selecciona un tipo de asiento para continuar.'
     return
   }
-
-  const tiposDisponibles = tiposDisponiblesPorBus(ruta.busId)
-  if (!tiposDisponibles.some(tipo => tipo.tipo === tipoServicio)) {
-    error.value = 'El tipo de asiento seleccionado no está disponible para este bus.'
-    return
-  }
-
-  if (asientosLibresPorRutaYTipo(ruta, tipoServicio) <= 0) {
-    error.value = 'El tipo de asiento seleccionado ya no tiene asientos disponibles.'
-    return
-  }
-
   error.value = ''
   rutaSeleccionada.value = ruta
   tipoServicioSeleccionado.value = tipoServicio
   asientosSeleccionados.value = []
-  asientosOcupados.value = []
-  asientosDelBus.value = []
   await cargarAsientosDelBus(ruta.busId)
   await cargarAsientosOcupados(ruta.id)
 }
 
 const volverABuscar = () => {
-  compraConfirmada.value = null
   rutaSeleccionada.value = null
-  asientosSeleccionados.value = []
-  asientosOcupados.value = []
-  asientosDelBus.value = []
-  tipoServicioSeleccionado.value = ''
-  captura.value = null
-  referenciaPago.value = ''
-  mostrarPago.value = false
+  resetUI()
 }
 
 onMounted(() => {
@@ -802,13 +760,6 @@ onMounted(() => {
 
 watch(() => filtros.fecha, () => {
   rutaSeleccionada.value = null
-  asientosSeleccionados.value = []
-  asientosOcupados.value = []
-  asientosOcupadosPorTipo.NORMAL = []
-  asientosOcupadosPorTipo.VIP = []
-  asientosOcupadosPorTipo.EXECUTIVO = []
-  asientosDelBus.value = []
-  tipoServicioSeleccionado.value = ''
   void cargarRutas()
 })
 </script>
@@ -820,22 +771,23 @@ watch(() => filtros.fecha, () => {
       <div class="rounded-2xl bg-emerald-600 text-white p-6 shadow-2xl flex items-center gap-4">
         <span class="text-4xl">🎉</span>
         <div>
-          <p class="text-emerald-100 text-sm font-bold uppercase tracking-wider">Compra recibida</p>
-          <h2 class="text-2xl font-black">Tu reserva está pendiente de verificación</h2>
+          <p class="text-emerald-100 text-sm font-bold uppercase tracking-wider">Compra exitosa</p>
+          <h2 class="text-2xl font-black">
+            {{ compraConfirmada.metodoPago === 'Tarjeta' ? 'Tu pago ha sido procesado' : 'Tu reserva está pendiente de verificación' }}
+          </h2>
         </div>
       </div>
       <article class="rounded-2xl bg-white p-6 shadow-xl border border-slate-200">
-        <p class="font-bold text-slate-700">Código: <span class="font-mono text-blue-700">Pendiente de registro</span></p>
-        <p class="text-sm text-slate-500 mt-1">El oficinista validará el comprobante y tu boleto con QR aparecerá en
-          <router-link to="/mis-boletos" class="font-bold text-blue-700 underline">Mis boletos</router-link>.</p>
+        <p class="font-bold text-slate-700">Estado: <span class="text-blue-700">{{ compraConfirmada.metodoPago === 'Tarjeta' ? 'PAGADO' : 'PENDIENTE' }}</span></p>
         <dl class="grid grid-cols-2 gap-3 text-sm mt-4">
           <dt class="font-bold text-slate-500">Ruta</dt> <dd>{{ compraConfirmada.ruta.origen }} → {{ compraConfirmada.ruta.destino }}</dd>
           <dt class="font-bold text-slate-500">Fecha</dt><dd>{{ compraConfirmada.ruta.fecha }} · {{ compraConfirmada.ruta.hora }}</dd>
           <dt class="font-bold text-slate-500">Asientos</dt><dd>{{ compraConfirmada.asientos.join(', ') }}</dd>
           <dt class="font-bold text-slate-500">Total pagado</dt><dd class="font-black text-blue-700">${{ compraConfirmada.total.toFixed(2) }}</dd>
+          <dt class="font-bold text-slate-500">Método</dt><dd>{{ compraConfirmada.metodoPago }}</dd>
         </dl>
       </article>
-      <button @click="nuevaBusqueda" class="rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-xl shadow-blue-100 hover:bg-blue-700">
+      <button @click="nuevaBusqueda" class="rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-xl hover:bg-blue-700">
         Buscar otra ruta
       </button>
     </div>
@@ -850,216 +802,139 @@ watch(() => filtros.fecha, () => {
         {{ error }}
       </div>
 
-      <div v-if="loading" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-        Cargando rutas reales desde la base de datos...
-      </div>
-
       <!-- ===== Filtros ===== -->
       <section v-if="!rutaSeleccionada" class="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur">
         <div class="grid gap-4 sm:grid-cols-3">
           <div class="rounded-2xl bg-slate-50 p-3">
             <label class="text-xs font-bold text-slate-700">Origen</label>
-            <input v-model="filtros.origen" minlength="3" placeholder="Ej. Quito"
-              class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
-            <p v-if="filtros.origen.trim() && filtros.origen.trim().length < 3" class="mt-1 text-xs font-medium text-amber-600">
-              Escribe al menos 3 caracteres para filtrar por origen.
-            </p>
+            <input v-model="filtros.origen" placeholder="Ej. Quito" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
           </div>
           <div class="rounded-2xl bg-slate-50 p-3">
             <label class="text-xs font-bold text-slate-700">Destino</label>
-            <input v-model="filtros.destino" minlength="3" placeholder="Ej. Guayaquil"
-              class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
-            <p v-if="filtros.destino.trim() && filtros.destino.trim().length < 3" class="mt-1 text-xs font-medium text-amber-600">
-              Escribe al menos 3 caracteres para filtrar por destino.
-            </p>
+            <input v-model="filtros.destino" placeholder="Ej. Guayaquil" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
           </div>
           <div class="rounded-2xl bg-slate-50 p-3">
             <label class="text-xs font-bold text-slate-700">Fecha</label>
-            <input v-model="filtros.fecha" type="date" :min="fechaMinima"
-              class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
-            <p class="mt-1 text-xs font-medium text-slate-500">
-              Solo se permiten rutas desde hoy en adelante.
-            </p>
+            <input v-model="filtros.fecha" type="date" :min="fechaMinima" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
           </div>
         </div>
       </section>
-
-      <div v-if="errorFiltros" class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700">
-        {{ errorFiltros }}
-      </div>
 
       <!-- ===== Resultados ===== -->
       <section v-if="!rutaSeleccionada" class="grid gap-3">
         <article v-for="r in resultados" :key="r.id"
-          class="rounded-2xl bg-white p-5 shadow-md border border-slate-100 hover:shadow-lg hover:border-blue-300 transition-all">
-          <div class="flex flex-wrap items-center gap-4">
-            <div class="flex-1 min-w-[200px]">
-              <div class="flex items-center gap-2 mb-1">
-                <p class="text-xs font-bold uppercase tracking-wider text-slate-400">{{ r.cooperativa }}</p>
-                <span v-if="r.esDirecto" class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-orange-500 text-white shadow-sm">⚡ Directo</span>
-                <span v-else class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-500 text-white shadow-sm">🚌 Con Paradas</span>
-              </div>
-              <p class="text-xl font-black text-slate-900">{{ r.origen }} → {{ r.destino }}</p>
-              <p class="text-sm text-slate-500">{{ r.fecha }} · Sale {{ r.hora }} · Bus {{ r.busPlaca }}</p>
-            </div>
-            <div class="min-w-[220px] text-right">
-              <label class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Tipo de asiento</label>
-              <select
-                v-model="tipoSeleccionadoPorRuta[r.id]"
-                class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700"
-                :disabled="tiposDisponiblesParaRuta(r).length === 0"
-              >
-                <option value="">Selecciona una opción</option>
-                <option v-for="tipo in tiposDisponiblesParaRuta(r)" :key="tipo.tipo" :value="tipo.tipo">
-                  {{ tipo.nombre }} · ${{ tipo.precioBase.toFixed(2) }}
-                </option>
-              </select>
-              <p v-if="tipoSeleccionadoPorRuta[r.id]" class="text-2xl font-black text-blue-700 mt-2">
-                ${{ precioPorTipoYBus(r.busId, tipoSeleccionadoPorRuta[r.id]).toFixed(2) }}
-              </p>
-              <p v-else class="text-xs font-medium text-slate-500 mt-2">
-                Selecciona un tipo para ver el costo
-              </p>
-              <p v-if="tipoSeleccionadoPorRuta[r.id]" class="text-xs font-bold mt-2" :class="asientosLibresPorRutaYTipo(r, tipoSeleccionadoPorRuta[r.id]) > 0 ? 'text-emerald-600' : 'text-red-600'">
-                {{ asientosLibresPorRutaYTipo(r, tipoSeleccionadoPorRuta[r.id]) > 0 ? asientosLibresPorRutaYTipo(r, tipoSeleccionadoPorRuta[r.id]) + ' asientos libres para este tipo' : 'No hay asientos disponibles para este tipo' }}
-              </p>
-              <p v-if="tiposDisponiblesPorBus(r.busId).length === 0" class="text-xs font-medium text-amber-600 mt-2">
-                Este bus aún no tiene tipos de asiento configurados.
-              </p>
-              <p v-else-if="tiposDisponiblesParaRuta(r).length === 0" class="text-xs font-medium text-rose-600 mt-2">
-                Los tipos de este bus están agotados para esta ruta.
-              </p>
-              <p class="text-xs font-bold" :class="r.asientosLibres > 10 ? 'text-emerald-600' : r.asientosLibres > 0 ? 'text-amber-600' : 'text-red-600'">
-                {{ r.asientosLibres > 0 ? r.asientosLibres + ' asientos libres' : 'Lleno' }}
-              </p>
-            </div>
-            <button :disabled="!tipoSeleccionadoPorRuta[r.id] || r.asientosLibres === 0 || asientosLibresPorRutaYTipo(r, tipoSeleccionadoPorRuta[r.id]) === 0 || loadingAsientos" @click="seleccionarRuta(r, tipoSeleccionadoPorRuta[r.id])"
-              class="rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-xl shadow-blue-100 hover:bg-blue-700 disabled:opacity-50">
-              Elegir asientos
-            </button>
+          class="rounded-2xl bg-white p-5 shadow-md border border-slate-100 hover:shadow-lg transition-all flex flex-wrap items-center gap-4">
+          <div class="flex-1 min-w-[200px]">
+            <p class="text-xs font-bold uppercase tracking-wider text-slate-400">{{ r.cooperativa }}</p>
+            <p class="text-xl font-black text-slate-900">{{ r.origen }} → {{ r.destino }}</p>
+            <p class="text-sm text-slate-500">{{ r.fecha }} · {{ r.hora }}</p>
           </div>
+          <div class="min-w-[220px]">
+            <select v-model="tipoSeleccionadoPorRuta[r.id]" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+              <option value="">Selecciona tipo de asiento</option>
+              <option v-for="tipo in tiposDisponiblesParaRuta(r)" :key="tipo.tipo" :value="tipo.tipo">
+                {{ tipo.nombre }} · ${{ tipo.precioBase.toFixed(2) }}
+              </option>
+            </select>
+          </div>
+          <button :disabled="!tipoSeleccionadoPorRuta[r.id] || r.asientosLibres === 0" @click="seleccionarRuta(r, tipoSeleccionadoPorRuta[r.id])"
+            class="rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-xl hover:bg-blue-700 disabled:opacity-50">
+            Elegir asientos
+          </button>
         </article>
-        <div v-if="resultados.length === 0" class="rounded-2xl bg-white p-8 text-center text-slate-500 border border-slate-100">
-          No hay rutas con esos filtros. Ajusta la búsqueda.
-        </div>
       </section>
 
-      <!-- ===== Selección de asientos y pago ===== -->
+      <!-- ===== Selección de asientos ===== -->
       <section v-else class="space-y-6">
-        <div class="rounded-2xl bg-blue-50 border border-blue-200 p-4 flex flex-wrap items-center justify-between gap-3">
+        <div class="rounded-2xl bg-blue-50 border border-blue-200 p-4 flex justify-between items-center">
           <div>
-            <p class="text-xs font-bold uppercase text-blue-600 tracking-wider">Ruta elegida</p>
-            <p class="font-black text-slate-900">{{ rutaSeleccionada.origen }} → {{ rutaSeleccionada.destino }} · {{ rutaSeleccionada.fecha }} · {{ rutaSeleccionada.hora }}</p>
-            <p class="text-sm font-bold text-slate-600 mt-1">
-              Tipo: {{ etiquetaTipoServicio(tipoServicioSeleccionado) }} · ${{ precioSeleccionado.toFixed(2) }}
-            </p>
-            <p class="text-sm font-bold text-slate-600 mt-1">
-              Asientos libres para este tipo: {{ asientosLibresDelTipoSeleccionado }}
-            </p>
+            <p class="text-xs font-bold uppercase text-blue-600">Ruta elegida</p>
+            <p class="font-black text-slate-900">{{ rutaSeleccionada.origen }} → {{ rutaSeleccionada.destino }}</p>
           </div>
-          <button @click="volverABuscar" class="text-sm font-bold text-blue-700 underline underline-offset-4">Cambiar ruta</button>
+          <button @click="volverABuscar" class="text-sm font-bold text-blue-700 underline">Cambiar ruta</button>
         </div>
 
-        <div class="grid gap-6 lg:grid-cols-[1fr_360px]">
-          <div class="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur">
-            <h3 class="text-lg font-black text-slate-900 mb-4">Selecciona tus asientos</h3>
-            <p v-if="!tipoServicioSeleccionado" class="mb-3 text-sm font-medium text-amber-600">
-              Debes seleccionar un tipo de asiento antes de escoger un lugar.
-            </p>
-            <p v-else-if="asientosLayout.length === 0" class="mb-3 text-sm font-medium text-amber-600">
-              No hay asientos disponibles para este tipo en el bus seleccionado.
-            </p>
-            <p v-if="loadingAsientos" class="mb-3 text-sm text-slate-500">Cargando asientos reales ocupados...</p>
-            <div class="flex items-center gap-4 text-xs mb-4">
-              <div class="flex items-center gap-1"><span class="w-4 h-4 rounded bg-white border-2 border-slate-300"></span>Libre</div>
-              <div class="flex items-center gap-1"><span class="w-4 h-4 rounded bg-blue-600"></span>Elegido</div>
-              <div class="flex items-center gap-1"><span class="w-4 h-4 rounded bg-slate-300"></span>Ocupado</div>
-            </div>
-            <div class="rounded-xl bg-slate-100 p-4 max-w-md mx-auto">
-              <div class="text-center text-xs text-slate-500 mb-3 pb-2 border-b border-slate-200">⬆ Frente del bus</div>
-              <div class="space-y-4">
-                <section v-for="tipo in TIPOS_SERVICIO" :key="tipo.value" class="rounded-xl border p-3" :class="tipo.value === tipoServicioSeleccionado ? 'border-blue-300 bg-blue-50' : 'border-slate-200 bg-slate-50'">
-                  <div class="flex items-center justify-between mb-3">
-                    <p class="text-xs font-black uppercase tracking-wider" :class="tipo.value === tipoServicioSeleccionado ? 'text-blue-700' : 'text-slate-500'">
-                      {{ tipo.label }}
-                    </p>
-                    <p class="text-[10px] font-bold" :class="tipo.value === tipoServicioSeleccionado ? 'text-blue-600' : 'text-slate-400'">
-                      {{ tipo.value === tipoServicioSeleccionado ? 'Sección activa' : 'Bloqueada' }}
-                    </p>
-                  </div>
-                  <div v-if="asientosPorTipoEnBus[tipo.value].length === 0" class="text-xs text-slate-400">
-                    No hay asientos registrados para este tipo.
-                  </div>
-                  <div v-else class="grid grid-cols-5 gap-2">
-                    <template v-for="(a, idx) in asientosPorTipoEnBus[tipo.value]" :key="a.id">
-                      <button
-                        @click="tipo.value === tipoServicioSeleccionado && toggleAsiento({ numero: a.numero, ocupado: seatsAlreadyUsedByType(tipo.value).has(a.numero.toString().padStart(2, '0')) })"
-                        :disabled="tipo.value !== tipoServicioSeleccionado || seatsAlreadyUsedByType(tipo.value).has(a.numero.toString().padStart(2, '0'))"
-                        class="aspect-square rounded-lg text-xs font-bold transition-all"
-                        :class="tipo.value !== tipoServicioSeleccionado
-                          ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-70'
-                          : seatsAlreadyUsedByType(tipo.value).has(a.numero.toString().padStart(2, '0'))
-                            ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                            : asientosSeleccionados.includes(a.numero)
-                              ? 'bg-blue-600 text-white shadow-md'
-                              : 'bg-white border-2 border-slate-300 hover:border-blue-500'">
-                        {{ a.numero }}
-                      </button>
-                      <div v-if="idx % 4 === 1" class="aspect-square"></div>
-                    </template>
-                  </div>
-                </section>
-              </div>
-            </div>
-            <!-- Botón de confirmar asientos colocado debajo del mapa para priorizar selección -->
-            <div class="mt-4 text-center">
-              <button :disabled="asientosSeleccionados.length === 0 || !tipoServicioSeleccionado" @click="mostrarPago = true"
-                class="w-full rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-xl hover:bg-blue-700 disabled:opacity-50">
-                Confirmar asientos
+        <div class="rounded-2xl bg-white p-6 shadow-xl border border-slate-200 max-w-md mx-auto">
+          <h3 class="font-black text-center mb-4">Selecciona tus asientos</h3>
+          <div class="grid grid-cols-5 gap-3">
+            <template v-for="(a, idx) in asientosLayout" :key="a.numero">
+              <button @click="toggleAsiento(a)" :disabled="a.ocupado"
+                class="aspect-square rounded-lg text-xs font-bold transition-all"
+                :class="a.ocupado ? 'bg-slate-300 text-slate-500' : asientosSeleccionados.includes(a.numero) ? 'bg-blue-600 text-white' : 'bg-white border-2 border-slate-200'">
+                {{ a.numero }}
               </button>
-            </div>
+              <div v-if="idx % 4 === 1" class="aspect-square"></div>
+            </template>
           </div>
-
-          <!-- Se removió el panel lateral para dejar SOLO el mapa de asientos como pidió el usuario -->
-          <!-- (no se muestra resumen lateral) -->
+          <button :disabled="asientosSeleccionados.length === 0" @click="mostrarPago = true"
+            class="w-full mt-6 rounded-2xl bg-blue-600 py-4 font-black text-white shadow-xl hover:bg-blue-700">
+            Siguiente: Pago (${{ (precioSeleccionado * asientosSeleccionados.length).toFixed(2) }})
+          </button>
         </div>
 
-        <!-- ===== Modal de Pago (montado como overlay) ===== -->
-        <div v-if="mostrarPago" class="fixed inset-0 z-50 flex items-center justify-center">
-          <div class="absolute inset-0 bg-black/40" @click="mostrarPago = false"></div>
-          <div class="relative w-full max-w-2xl mx-4">
-            <div class="rounded-2xl bg-white p-6 shadow-2xl border border-slate-200">
-              <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-black text-slate-900">Formulario de transferencia</h3>
-                <button @click="mostrarPago = false" class="text-slate-500 hover:text-slate-700">✕</button>
-              </div>
+        <!-- ===== Modal de Pago ===== -->
+        <div v-if="mostrarPago" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" @click="mostrarPago = false"></div>
+          <div class="relative w-full max-w-2xl bg-white rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="p-8 border-b flex justify-between items-center">
+              <h3 class="text-2xl font-black">Finalizar compra</h3>
+              <button @click="mostrarPago = false" class="text-slate-400 text-2xl">×</button>
+            </div>
+            
+            <div class="p-8 overflow-y-auto space-y-6">
+              <nav class="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-2xl">
+                <button @click="metodoPago = 'Transferencia'" :class="metodoPago === 'Transferencia' ? 'bg-white shadow-sm' : ''" class="py-3 rounded-xl font-bold transition-all">Transferencia</button>
+                <button @click="iniciarPagoTarjeta" :class="metodoPago === 'Tarjeta' ? 'bg-white shadow-sm text-blue-600' : ''" class="py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2">
+                  <span v-if="stripeLoading" class="w-4 h-4 border-2 border-blue-600 border-t-transparent animate-spin rounded-full"></span>
+                  Tarjeta
+                </button>
+              </nav>
+
+              <!-- Formulario Datos Pasajero -->
               <div class="grid gap-4 sm:grid-cols-2">
-                <div class="rounded-2xl bg-slate-50 p-3">
-                  <label class="text-xs font-bold text-slate-700">Referencia / número de transacción</label>
-                  <input v-model="referenciaPago" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
-                  <label class="text-xs font-bold text-slate-700 mt-3 block">Fecha de nacimiento</label>
-                  <input v-model="fechaNacimientoPasajero" type="date" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
+                <div class="space-y-4">
+                   <div class="bg-slate-50 p-3 rounded-2xl">
+                    <label class="text-xs font-black text-slate-500 uppercase tracking-wider">Cédula *</label>
+                    <input v-model="cedulaPasajero" class="w-full bg-transparent font-bold outline-none pt-1"/>
+                  </div>
+                  <div class="bg-slate-50 p-3 rounded-2xl">
+                    <label class="text-xs font-black text-slate-500 uppercase tracking-wider">Nombres *</label>
+                    <input v-model="nombresPasajero" class="w-full bg-transparent font-bold outline-none pt-1"/>
+                  </div>
                 </div>
-                <div class="rounded-2xl bg-slate-50 p-3">
-                  <label class="text-xs font-bold text-slate-700">Número de cuenta (origen)</label>
-                  <input v-model="cuentaOrigen" placeholder="Ej. 1234567890" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 text-sm"/>
-                  <label class="text-xs font-bold text-slate-700 mt-3 block">Nombres del pasajero</label>
-                  <input v-model="nombresPasajero" :placeholder="String(authStore.user?.nombres ?? '')" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 text-sm"/>
-                  <label class="text-xs font-bold text-slate-700 mt-3 block">Apellidos del pasajero</label>
-                  <input v-model="apellidosPasajero" :placeholder="String(authStore.user?.apellidos ?? '')" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 text-sm"/>
-                  <label class="text-xs font-bold text-slate-700 mt-3 block">Cédula del pasajero</label>
-                  <input v-model="cedulaPasajero" :placeholder="String(authStore.user?.cedula ?? '')" class="w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 mt-1 text-sm font-bold text-slate-700"/>
-                  <label class="text-xs font-bold text-slate-700 mt-3 block">Captura del pago (imagen)</label>
-                  <input type="file" accept="image/*" @change="onCapturaUpload" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 text-sm"/>
+                <div class="space-y-4">
+                  <div class="bg-slate-50 p-3 rounded-2xl">
+                    <label class="text-xs font-black text-slate-500 uppercase tracking-wider">Fecha Nacimiento *</label>
+                    <input v-model="fechaNacimientoPasajero" type="date" class="w-full bg-transparent font-bold outline-none pt-1"/>
+                  </div>
+                  <div class="bg-slate-50 p-3 rounded-2xl">
+                    <label class="text-xs font-black text-slate-500 uppercase tracking-wider">Apellidos *</label>
+                    <input v-model="apellidosPasajero" class="w-full bg-transparent font-bold outline-none pt-1"/>
+                  </div>
                 </div>
               </div>
-              <div v-if="captura" class="mt-4">
-                <p class="text-xs font-bold text-slate-700 mb-2">Vista previa:</p>
-                <img :src="captura" alt="Captura pago" class="rounded-xl border border-slate-200 max-h-64"/>
+
+              <!-- Vista Transferencia -->
+              <div v-if="metodoPago === 'Transferencia'" class="space-y-4">
+                <div class="p-6 border-2 border-dashed border-blue-200 rounded-3xl text-center">
+                  <input type="file" accept="image/*" @change="onCapturaUpload" class="hidden" id="upload"/>
+                  <label for="upload" class="cursor-pointer">
+                    <p class="text-3xl mb-2">📸</p>
+                    <p class="font-bold text-blue-700">Sube tu comprobante</p>
+                    <p class="text-xs text-slate-500 mt-1">Formatos permitidos: JPG, PNG</p>
+                  </label>
+                  <img v-if="capture" :src="capture" class="mt-4 rounded-xl max-h-48 mx-auto border"/>
+                </div>
+                <button @click="completarCompra()" :disabled="!capturaArchivo" class="w-full py-4 bg-emerald-600 text-white rounded-2xl font-black shadow-xl hover:bg-emerald-700 disabled:opacity-50">Confirmar Reserva</button>
               </div>
-              <div class="mt-5 flex gap-3 justify-end">
-                <button @click="mostrarPago = false" class="rounded-2xl bg-slate-100 px-4 py-2 font-bold text-slate-700 hover:bg-slate-200">Cancelar</button>
-                <button @click="confirmarCompra" class="rounded-2xl bg-emerald-600 px-6 py-2 font-black text-white hover:bg-emerald-700">Confirmar compra</button>
+
+              <!-- Vista Tarjeta (Stripe) -->
+              <div v-else-if="clientSecret">
+                <StripePaymentForm 
+                  :client-secret="clientSecret" 
+                  :amount="precioSeleccionado * asientosSeleccionados.length" 
+                  @success="completarCompra"
+                />
               </div>
             </div>
           </div>
