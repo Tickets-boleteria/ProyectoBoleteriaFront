@@ -140,6 +140,10 @@ const boletosFiltrados = computed(() => boletos.value.filter(b =>
 
 async function verBoleto(b: Boleto) {
   boletoActivo.value = b
+  if (b.estado === 'PENDIENTE') {
+    qrDataUrl.value = ''
+    return
+  }
   qrDataUrl.value = await QRCode.toDataURL(b.codigo, {
     width: 240, margin: 2,
     color: { dark: '#1e40af', light: '#ffffff' },
@@ -202,13 +206,19 @@ onMounted(() => {
             <dt class="font-bold text-slate-500">Precio</dt><dd class="font-bold">${{ boletoActivo.precio.toFixed(2) }}</dd>
           </dl>
           <div class="text-center">
-            <img :src="qrDataUrl" alt="QR" class="border-4 border-white rounded-xl shadow-lg"/>
-            <p class="text-xs text-slate-500 mt-2 font-mono">{{ boletoActivo.codigo }}</p>
+            <template v-if="qrDataUrl">
+              <img :src="qrDataUrl" alt="QR" class="border-4 border-white rounded-xl shadow-lg"/>
+              <p class="text-xs text-slate-500 mt-2 font-mono">{{ boletoActivo.codigo }}</p>
+            </template>
+            <div v-else class="p-6 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center gap-3">
+              <span class="text-3xl grayscale opacity-50">🕒</span>
+              <p class="text-[10px] font-black uppercase text-slate-500 leading-tight">QR no disponible<br/>hasta confirmar pago</p>
+            </div>
           </div>
         </div>
 
         <!-- Barcode -->
-        <div class="px-6 pb-6">
+        <div v-if="qrDataUrl" class="px-6 pb-6">
           <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Código de barras</p>
           <div class="bg-white p-3 border border-slate-200 rounded-xl overflow-x-auto">
             <svg :viewBox="`0 0 ${barcodeWidth} 100`" :width="Math.max(240, barcodeWidth * 2)" height="100" preserveAspectRatio="xMidYMin meet">

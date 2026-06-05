@@ -602,6 +602,7 @@ const referenciaPago = ref('')
 const cuentaOrigen = ref('')
 const nombresPasajero = ref('')
 const apellidosPasajero = ref('')
+const cedulaPasajero = ref('')
 const fechaNacimientoPasajero = ref('')
 const mostrarPago = ref(false)
 const BUCKET_COMPROBANTES = 'comprobantes'
@@ -645,10 +646,11 @@ async function confirmarCompra() {
 
   const nombres = nombresPasajero.value.trim() || String(authStore.user?.nombres ?? '').trim()
   const apellidos = apellidosPasajero.value.trim() || String(authStore.user?.apellidos ?? '').trim()
+  const cedula = cedulaPasajero.value.trim() || String(authStore.user?.cedula ?? '').trim()
   const fechaNacimiento = fechaNacimientoPasajero.value.trim()
 
-  if (!nombres || !apellidos || !fechaNacimiento) {
-    error.value = 'Completa nombres, apellidos y fecha de nacimiento del pasajero.'
+  if (!nombres || !apellidos || !cedula || !fechaNacimiento) {
+    error.value = 'Completa nombres, apellidos, cédula y fecha de nacimiento del pasajero.'
     return
   }
 
@@ -684,8 +686,8 @@ async function confirmarCompra() {
     // opcional: usar repositorio de auditoría si existe
     let auditRepo: any = undefined
     try {
-      const { SupabaseAuditRepository } = await import('../../../Infrastructure/SupabaseAuditRepository')
-      auditRepo = new SupabaseAuditRepository()
+      const { SupabaseAuditoriaRepository } = await import('../../../Infrastructure/Repositories/SupabaseAuditoriaRepository')
+      auditRepo = new SupabaseAuditoriaRepository()
     } catch (e) {
       // no existe o falla, no es crítico
     }
@@ -693,11 +695,12 @@ async function confirmarCompra() {
     const confirmar = new ConfirmarCompra(ventaRepo, boletosRepo, auditRepo)
     const result = await confirmar.ejecutar({
       ruta: rutaSeleccionada.value!,
-      asientos: asientoIds.map(String),
+      asientos: asientoIds,
       precioUnitario: precioSeleccionado.value,
       capturaArchivo: capturaArchivo.value as File,
       nombres,
       apellidos,
+      cedula,
       fechaNacimiento,
       usuarioId: authStore.user?.id ?? null,
     })
@@ -1038,6 +1041,8 @@ watch(() => filtros.fecha, () => {
                   <input v-model="nombresPasajero" :placeholder="String(authStore.user?.nombres ?? '')" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 text-sm"/>
                   <label class="text-xs font-bold text-slate-700 mt-3 block">Apellidos del pasajero</label>
                   <input v-model="apellidosPasajero" :placeholder="String(authStore.user?.apellidos ?? '')" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 text-sm"/>
+                  <label class="text-xs font-bold text-slate-700 mt-3 block">Cédula del pasajero</label>
+                  <input v-model="cedulaPasajero" :placeholder="String(authStore.user?.cedula ?? '')" class="w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 mt-1 text-sm font-bold text-slate-700"/>
                   <label class="text-xs font-bold text-slate-700 mt-3 block">Captura del pago (imagen)</label>
                   <input type="file" accept="image/*" @change="onCapturaUpload" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 text-sm"/>
                 </div>

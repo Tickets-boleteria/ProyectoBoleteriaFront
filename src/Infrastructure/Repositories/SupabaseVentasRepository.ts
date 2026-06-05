@@ -1,5 +1,5 @@
 import { supabase } from '../Api/supabaseClient'
-import { IVentaRepository } from '../../Domain/Repositories/IVentaRepository'
+import { IVentaRepository, VentaPayload } from '../../Domain/Repositories/IVentaRepository'
 
 export class SupabaseVentasRepository implements IVentaRepository {
   private readonly BUCKET = 'comprobantes'
@@ -11,9 +11,19 @@ export class SupabaseVentasRepository implements IVentaRepository {
     return { publicUrl: data.publicUrl }
   }
 
-  async crearVenta(payload: any) {
-    const { data, error } = await supabase.from('Ventas').insert([payload]).select('Id').single()
+  async crearVenta(payload: VentaPayload) {
+    const { data, error } = await supabase
+      .from('Ventas')
+      .insert([payload])
+      .select('Id')
+      .single()
+    
     if (error) throw error
-    return Number((data as any)?.Id ?? (data as any)?.id)
+    
+    // Devolvemos el ID de forma robusta
+    const id = Number(data?.Id ?? (data as any)?.id)
+    if (!id) throw new Error('Error al recuperar el ID de la venta creada')
+    
+    return id
   }
 }
