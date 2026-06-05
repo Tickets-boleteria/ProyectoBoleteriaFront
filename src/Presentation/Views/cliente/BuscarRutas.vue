@@ -608,9 +608,6 @@ const stripeLoading = ref(false)
 const capture = ref<string | null>(null)
 const capturaArchivo = ref<File | null>(null)
 const referenciaPago = ref('')
-const nombresPasajero = ref('')
-const apellidosPasajero = ref('')
-const cedulaPasajero = ref('')
 const fechaNacimientoPasajero = ref('')
 const tieneDiscapacidad = ref(false)
 const mostrarPago = ref(false)
@@ -674,14 +671,19 @@ const authStore = useAuthStore()
 
 async function completarCompra(stripePaymentIntent?: any) {
   if (!rutaSeleccionada.value || asientosSeleccionados.value.length === 0) return
-  
-  const nombres = nombresPasajero.value.trim() || String(authStore.user?.nombres ?? '').trim()
-  const apellidos = apellidosPasajero.value.trim() || String(authStore.user?.apellidos ?? '').trim()
-  const cedula = cedulaPasajero.value.trim() || String(authStore.user?.cedula ?? '').trim()
+
+  const nombres = String(authStore.user?.nombres ?? '').trim()
+  const apellidos = String(authStore.user?.apellidos ?? '').trim()
+  const cedula = String(authStore.user?.cedula ?? '').trim()
   const fechaNacimiento = fechaNacimientoPasajero.value.trim()
 
-  if (!nombres || !apellidos || !cedula || !fechaNacimiento) {
-    error.value = 'Completa nombres, apellidos, cédula y fecha de nacimiento del pasajero.'
+  if (!cedula || !nombres || !apellidos) {
+    error.value = 'Tu perfil no tiene cédula/nombres/apellidos. Complétalos para poder comprar.'
+    return
+  }
+
+  if (!fechaNacimiento) {
+    error.value = 'Ingresa la fecha de nacimiento del pasajero.'
     return
   }
 
@@ -708,7 +710,7 @@ async function completarCompra(stripePaymentIntent?: any) {
       ruta: rutaSeleccionada.value!,
       asientos: asientoIds,
       precioUnitario: precioSeleccionado.value,
-      capturaArchivo: capturaArchivo.value,
+      capturaArchivo: metodoPago.value === 'Transferencia' ? capturaArchivo.value : null,
       metodoPago: metodoPago.value,
       stripeId: stripePaymentIntent?.id,
       nombres,
@@ -732,8 +734,8 @@ async function completarCompra(stripePaymentIntent?: any) {
     mostrarPago.value = false
     resetUI()
   } catch (err: any) {
-    console.error('ERROR COMPLETO EN COMPLETAR_COMPRA:', err);
-    error.value = err.message || 'No fue posible registrar la compra.';
+    console.error('ERROR COMPLETO EN COMPLETAR_COMPRA:', err)
+    error.value = err.message || 'No fue posible registrar la compra.'
   }
 }
 
@@ -743,8 +745,6 @@ function resetUI() {
   capture.value = null
   capturaArchivo.value = null
   referenciaPago.value = ''
-  nombresPasajero.value = ''
-  apellidosPasajero.value = ''
   fechaNacimientoPasajero.value = ''
   tieneDiscapacidad.value = false
   metodoPago.value = 'Transferencia'
@@ -912,27 +912,30 @@ watch(() => filtros.fecha, () => {
                 </button>
               </nav>
 
-              <!-- Formulario Datos Pasajero -->
-              <div class="grid gap-4 sm:grid-cols-2">
-                <div class="space-y-4">
-                   <div class="bg-slate-50 p-3 rounded-2xl">
-                    <label class="text-xs font-black text-slate-500 uppercase tracking-wider">Cédula *</label>
-                    <input v-model="cedulaPasajero" class="w-full bg-transparent font-bold outline-none pt-1"/>
-                  </div>
-                  <div class="bg-slate-50 p-3 rounded-2xl">
-                    <label class="text-xs font-black text-slate-500 uppercase tracking-wider">Nombres *</label>
-                    <input v-model="nombresPasajero" class="w-full bg-transparent font-bold outline-none pt-1"/>
-                  </div>
+              <!-- Datos del pasajero desde sesión -->
+              <div class="space-y-4">
+                <div class="rounded-2xl border border-blue-100 bg-blue-50 p-4">
+                  <p class="text-xs font-black uppercase tracking-wider text-blue-700">
+                    Boleto a nombre de
+                  </p>
+                  <p class="mt-2 text-lg font-black text-slate-900">
+                    {{ authStore.user?.nombres || 'Sin nombres' }}
+                    {{ authStore.user?.apellidos || 'Sin apellidos' }}
+                  </p>
+                  <p class="mt-1 text-sm font-bold text-slate-600">
+                    Cédula:
+                    <span class="text-slate-900">
+                      {{ authStore.user?.cedula || 'Sin cédula registrada' }}
+                    </span>
+                  </p>
+                  <p class="mt-2 text-xs font-semibold text-slate-500">
+                    Estos datos se toman de tu perfil y no pueden editarse durante la compra.
+                  </p>
                 </div>
-                <div class="space-y-4">
-                  <div class="bg-slate-50 p-3 rounded-2xl">
-                    <label class="text-xs font-black text-slate-500 uppercase tracking-wider">Fecha Nacimiento *</label>
-                    <input v-model="fechaNacimientoPasajero" type="date" class="w-full bg-transparent font-bold outline-none pt-1"/>
-                  </div>
-                  <div class="bg-slate-50 p-3 rounded-2xl">
-                    <label class="text-xs font-black text-slate-500 uppercase tracking-wider">Apellidos *</label>
-                    <input v-model="apellidosPasajero" class="w-full bg-transparent font-bold outline-none pt-1"/>
-                  </div>
+
+                <div class="bg-slate-50 p-3 rounded-2xl">
+                  <label class="text-xs font-black text-slate-500 uppercase tracking-wider">Fecha Nacimiento *</label>
+                  <input v-model="fechaNacimientoPasajero" type="date" class="w-full bg-transparent font-bold outline-none pt-1"/>
                 </div>
               </div>
 

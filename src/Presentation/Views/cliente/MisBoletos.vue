@@ -83,8 +83,8 @@ const cargarBoletos = async () => {
       return {
         id: String(getFieldValue(row, 'Id') ?? ''),
         codigo: String(getFieldValue(row, 'CodigoQr') ?? getFieldValue(row, 'CodigoBarras') ?? ''),
-        origen: String(getFieldValue(frecuencia, 'CiudadOrigen') ?? getFieldValue(venta, 'CiudadOrigenVenta') ?? ''),
-        destino: String(getFieldValue(frecuencia, 'CiudadDestino') ?? getFieldValue(venta, 'CiudadDestinoVenta') ?? ''),
+        origen: String(getFieldValue(frecuencia, 'CiudadOrigen') ?? getFieldValue(venta, 'CiudadOrigenVenta') ?? '') || 'Origen',
+        destino: String(getFieldValue(frecuencia, 'CiudadDestino') ?? getFieldValue(venta, 'CiudadDestinoVenta') ?? '') || 'Destino',
         fecha: String(getFieldValue(ruta, 'Fecha') ?? getFieldValue(venta, 'FechaVenta') ?? '').slice(0, 10),
         hora: String(getFieldValue(frecuencia, 'HoraSalida') ?? '').slice(0, 5),
         asiento: String(getFieldValue(asiento, 'NumeroAsiento') ?? ''),
@@ -98,8 +98,9 @@ const cargarBoletos = async () => {
         estado: mapEstado(estadoBoleto, estadoVenta),
       }
     })
-    // Filtro mínimo: solo descartamos filas claramente incompletas.
-    .filter((b) => isValidText(b.codigo) && isValidText(b.origen) && isValidText(b.destino))
+    // Mostramos TODOS los boletos reales del usuario (confirmados y pendientes).
+    // Solo descartamos filas sin identidad (sin id ni codigo).
+    .filter((b) => isValidText(b.id) || isValidText(b.codigo))
   } catch (err: any) {
     error.value = err.message || 'No fue posible cargar tus boletos.'
     boletos.value = []
