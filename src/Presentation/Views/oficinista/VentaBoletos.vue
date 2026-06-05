@@ -5,6 +5,9 @@ import { SupabaseVentasRepository } from '../../../Infrastructure/Repositories/S
 import { SupabaseBoletosRepository } from '../../../Infrastructure/Repositories/SupabaseBoletosRepository'
 import { VenderBoleto } from '../../../Application/UseCases/VenderBoleto'
 import { useAuthStore } from '../../Store/authStore'
+import { SupabasePaymentRepository } from '../../../Infrastructure/Repositories/SupabasePaymentRepository'
+import { PrepararPagoStripe } from '../../../Application/UseCases/PrepararPagoStripe'
+import StripePaymentForm from '../../Components/StripePaymentForm.vue'
 
 type AnyRow = Record<string, any>
 
@@ -40,6 +43,8 @@ const authStore = useAuthStore()
 const ventasRepo = new SupabaseVentasRepository()
 const boletosRepo = new SupabaseBoletosRepository()
 const venderBoleto = new VenderBoleto(ventasRepo, boletosRepo)
+const paymentRepo = new SupabasePaymentRepository()
+const prepararPagoStripe = new PrepararPagoStripe(paymentRepo)
 
 const loading = ref(false)
 const vendiendo = ref(false)
@@ -69,6 +74,8 @@ const pasajero = reactive({
 })
 
 const ventaGenerada = ref<any | null>(null)
+const clientSecret = ref('')
+const stripeLoading = ref(false)
 
 function getField(obj: AnyRow | null | undefined, field: string) {
   if (!obj) return undefined
@@ -319,7 +326,27 @@ function validarFormulario() {
   return ''
 }
 
-async function confirmarVenta() {
+async function iniciarPagoTarjeta() {
+  limpiarMensajes()
+  const mensaje = validarFormulario()
+  if (mensaje) {
+    error.value = mensaje
+    return
+  }
+
+  stripeLoading.value = true
+  try {
+    const total = precioFinal.value
+    const res = await prepararPagoStripe.ejecutar(total)
+    clientSecret.value = res.clientSecret
+  } catch (err: any) {
+    error.value = 'No se pudo iniciar Stripe: ' + err.message
+  } finally {
+    stripeLoading.value = false
+  }
+}
+
+async function confirmarVenta(stripePaymentIntent?: any) {
   limpiarMensajes()
 
   const mensaje = validarFormulario()
@@ -345,7 +372,7 @@ async function confirmarVenta() {
       ciudadDestinoVenta: destinoVenta.value,
       paradaDestinoId: paradaDestinoId.value,
       paradaPermiteVenta: paradaSeleccionada.value?.permiteVenta,
-      metodoPago: pasajero.metodoPago,
+      metodoPago: pasajero.metodoPago === 'Tarjeta' ? 'Transferencia' : pasajero.metodoPago, // Trick for ENUM
       pasajeros: [
         {
           asientoId: asientoSeleccionadoId.value,
@@ -361,6 +388,13 @@ async function confirmarVenta() {
         },
       ],
     })
+
+    // If Stripe payment, we update the ComprobanteUrl with Stripe ID since the use case doesn't do it natively yet.
+    if (stripePaymentIntent && stripePaymentIntent.id) {
+      await supabase.from('Ventas')
+        .update({ ComprobanteUrl: `STRIPE_ID:${stripePaymentIntent.id}`, Estado: 'Confirmada' })
+        .eq('Id', result.ventaId)
+    }
 
     ventaGenerada.value = {
       ...result,
@@ -396,6 +430,7 @@ function nuevaVenta() {
   pasajero.fechaNacimiento = ''
   pasajero.discapacidad = false
   pasajero.metodoPago = 'Efectivo'
+  clientSecret.value = ''
   limpiarMensajes()
   void cargarRutas()
 }
@@ -561,8 +596,24 @@ onMounted(cargarRutas)
           </p>
         </div>
 
+        <div v-if="pasajero.metodoPago === 'Tarjeta'" class="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <div v-if="!clientSecret" class="text-center">
+             <button @click="iniciarPagoTarjeta" :disabled="stripeLoading" class="rounded-xl bg-blue-600 px-6 py-3 font-black text-white disabled:opacity-50">
+               {{ stripeLoading ? 'Conectando...' : 'Pagar con Tarjeta' }}
+             </button>
+          </div>
+          <div v-else>
+             <StripePaymentForm 
+               :client-secret="clientSecret" 
+               :amount="precioFinal" 
+               @success="confirmarVenta"
+             />
+          </div>
+        </div>
+
         <button
-          @click="confirmarVenta"
+          v-else
+          @click="() => confirmarVenta()"
           :disabled="vendiendo"
           class="mt-5 rounded-xl bg-emerald-600 px-5 py-3 font-black text-white disabled:opacity-50"
         >

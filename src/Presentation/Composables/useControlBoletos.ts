@@ -66,23 +66,23 @@ export function useControlBoletos() {
       const boletos = await obtenerBoletosPorRuta(rutaId)
 
       const boletosPagados = boletos
-        .filter((boleto: any) => String(getField(boleto, 'Estado')) === 'Pagado')
+        .filter((boleto: any) => String(getField(boleto, 'Estado')) === 'Emitido')
         .map((boleto: any) => Number(getField(boleto, 'Id')))
         .filter(Boolean)
 
       if (boletosPagados.length === 0) {
-        success.value = 'No hay boletos pagados pendientes de escaneo.'
+        success.value = 'No hay boletos pendientes de escaneo.'
         return
       }
 
       const { error: updateError } = await supabase
         .from('Boletos')
-        .update({ Estado: 'Rechazado' })
+        .update({ Estado: 'Cancelado' })
         .in('Id', boletosPagados)
 
       if (updateError) throw updateError
 
-      success.value = 'Boletos pagados no escaneados fueron rechazados.'
+      success.value = 'Boletos no escaneados fueron cancelados.'
     } catch (err: any) {
       error.value = err.message || 'No se pudieron rechazar los boletos.'
     } finally {
@@ -91,36 +91,9 @@ export function useControlBoletos() {
   }
 
   async function finalizarBoletosEnViaje(rutaId: number) {
-    loading.value = true
-    error.value = ''
-    success.value = ''
-
-    try {
-      const boletos = await obtenerBoletosPorRuta(rutaId)
-
-      const boletosEnViaje = boletos
-        .filter((boleto: any) => String(getField(boleto, 'Estado')) === 'En Viaje')
-        .map((boleto: any) => Number(getField(boleto, 'Id')))
-        .filter(Boolean)
-
-      if (boletosEnViaje.length === 0) {
-        success.value = 'No hay boletos en viaje para finalizar.'
-        return
-      }
-
-      const { error: updateError } = await supabase
-        .from('Boletos')
-        .update({ Estado: 'Finalizado' })
-        .in('Id', boletosEnViaje)
-
-      if (updateError) throw updateError
-
-      success.value = 'Boletos en viaje finalizados correctamente.'
-    } catch (err: any) {
-      error.value = err.message || 'No se pudieron finalizar los boletos.'
-    } finally {
-      loading.value = false
-    }
+    // NOTA: En la base de datos actual, 'Validado' es el estado final.
+    // No existe un estado 'Finalizado' separado.
+    success.value = 'Los boletos validados se consideran completados al finalizar la ruta.'
   }
 
   async function obtenerBoletosPorRuta(rutaId: number) {
@@ -146,10 +119,10 @@ export function useControlBoletos() {
 
     return {
       total: boletos.length,
-      pagados: boletos.filter((b: any) => String(getField(b, 'Estado')) === 'Pagado').length,
-      enViaje: boletos.filter((b: any) => String(getField(b, 'Estado')) === 'En Viaje').length,
-      finalizados: boletos.filter((b: any) => String(getField(b, 'Estado')) === 'Finalizado').length,
-      rechazados: boletos.filter((b: any) => String(getField(b, 'Estado')) === 'Rechazado').length,
+      pagados: boletos.filter((b: any) => String(getField(b, 'Estado')) === 'Emitido').length,
+      enViaje: boletos.filter((b: any) => String(getField(b, 'Estado')) === 'Validado').length,
+      finalizados: 0, // No distinguible en DB
+      rechazados: boletos.filter((b: any) => String(getField(b, 'Estado')) === 'Cancelado').length,
       pendientes: boletos.filter((b: any) => String(getField(b, 'Estado')) === 'Pendiente').length,
     }
   }

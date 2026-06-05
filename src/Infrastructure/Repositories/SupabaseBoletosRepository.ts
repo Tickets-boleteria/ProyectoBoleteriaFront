@@ -49,7 +49,7 @@ export class SupabaseBoletosRepository implements IBoletosRepository {
       throw new Error('La venta no tiene boletos asociados.')
     }
 
-    if (estado === 'Pagado') {
+    if (estado === 'Emitido') {
       for (const boleto of boletos) {
         const boletoId = Number(getField(boleto, 'Id'))
         const asientoId = Number(getField(boleto, 'AsientoId'))
@@ -478,7 +478,7 @@ export class SupabaseBoletosRepository implements IBoletosRepository {
         FechaValidacion: new Date().toISOString(),
       })
       .eq('Id', boletoId)
-      .eq('Estado', 'Pagado')
+      .eq('Estado', 'Emitido')
       .select()
       .maybeSingle()
 
@@ -488,9 +488,9 @@ export class SupabaseBoletosRepository implements IBoletosRepository {
 
     const actualizadoSimple = await supabase
       .from('Boletos')
-      .update({ Estado: 'En Viaje' })
+      .update({ Estado: 'Validado' })
       .eq('Id', boletoId)
-      .eq('Estado', 'Pagado')
+      .eq('Estado', 'Emitido')
       .select()
       .maybeSingle()
 

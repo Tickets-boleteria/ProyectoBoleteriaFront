@@ -130,7 +130,7 @@ export class VenderBoleto {
         PrecioFinal: pasajero.precioFinal,
         CodigoQr: codigoQr,
         CodigoBarras: codigoBarras,
-        Estado: 'AprobadaPago',
+        Estado: 'Emitido',
         CreatedAt: new Date().toISOString(),
       }
     })

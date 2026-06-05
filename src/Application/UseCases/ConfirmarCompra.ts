@@ -10,7 +10,9 @@ export type ConfirmInput = {
   }
   asientos: number[] // IDs de los asientos
   precioUnitario: number
-  capturaArchivo: File
+  capturaArchivo?: File | null
+  metodoPago: 'Transferencia' | 'Tarjeta' | 'Efectivo'
+  stripeId?: string
   nombres: string
   apellidos: string
   cedula: string
@@ -30,26 +32,46 @@ export class ConfirmarCompra {
     if (!input.asientos || !input.asientos.length) throw new Error('Asientos requeridos')
     if (!input.cedula) throw new Error('Cédula del pasajero requerida')
 
-    // 1. Subir comprobante al bucket
-    const extension = input.capturaArchivo.name.includes('.') 
-      ? input.capturaArchivo.name.split('.').pop() 
-      : 'png'
-    const filePath = `${input.usuarioId ?? 'anon'}/${Date.now()}-${crypto.randomUUID()}.${extension}`
-    const uploadRes = await this.ventaRepo.uploadComprobante(filePath, input.capturaArchivo, { 
-      contentType: input.capturaArchivo.type 
-    })
+    let comprobanteUrl = 'PAGO_DIRECTO'
+    let realMetodoPago = input.metodoPago
 
-    // 2. Registrar la Venta (Estado inicial: Pendiente)
+    // 1. Subir comprobante al bucket solo si es transferencia manual
+    if (input.metodoPago === 'Transferencia' && input.capturaArchivo) {
+      const extension = input.capturaArchivo.name.includes('.') 
+        ? input.capturaArchivo.name.split('.').pop() 
+        : 'png'
+      const filePath = `${input.usuarioId ?? 'anon'}/${Date.now()}-${crypto.randomUUID()}.${extension}`
+      const uploadRes = await this.ventaRepo.uploadComprobante(filePath, input.capturaArchivo, { 
+        contentType: input.capturaArchivo.type 
+      })
+      comprobanteUrl = uploadRes.publicUrl
+    } 
+    
+    // Si es Tarjeta, usamos 'Transferencia' en la DB por compatibilidad con el ENUM,
+    // pero guardamos el rastro en el ComprobanteUrl
+    if (input.metodoPago === 'Tarjeta') {
+      realMetodoPago = 'Transferencia' // Forzamos por ENUM de DB
+      comprobanteUrl = `STRIPE_ID:${input.stripeId || 'STRIPE_PAYMENT'}`
+    }
+
+    // 2. Registrar la Venta
     const total = input.precioUnitario * input.asientos.length
+    
+    // Si ya pagó (Tarjeta o Efectivo), la venta nace como Confirmada.
+    // Si es Transferencia, nace como Pendiente.
+    const estadoVenta = (input.metodoPago === 'Tarjeta' || input.metodoPago === 'Efectivo') 
+      ? 'Confirmada' 
+      : 'Pendiente'
+    
     const ventaPayload: VentaPayload = {
       UsuarioVendedorId: input.usuarioId ?? null,
       RutaId: input.ruta.id,
       CiudadOrigenVenta: input.ruta.origen,
       CiudadDestinoVenta: input.ruta.destino,
       Total: total,
-      Estado: 'Pendiente',
-      MetodoPago: 'Transferencia',
-      ComprobanteUrl: uploadRes.publicUrl,
+      Estado: estadoVenta, 
+      MetodoPago: realMetodoPago,
+      ComprobanteUrl: comprobanteUrl,
       AprobadoPorId: null,
       FechaVenta: new Date().toISOString(),
     }
@@ -57,9 +79,12 @@ export class ConfirmarCompra {
     const ventaId = await this.ventaRepo.crearVenta(ventaPayload)
     if (!ventaId) throw new Error('No se pudo crear el registro de venta')
 
-    // 3. Generar los Boletos (Estado inicial: Pendiente)
-    const boletosInsert: BoletoPayload[] = input.asientos.map((asientoId, idx) => {
-      // Formato de QR oficial: QR-R{RutaId}-V{VentaId}-A{AsientoId}-{Unique}
+    // 3. Generar los Boletos
+    // En la DB el ENUM "EstadoBoleto" solo permite: Emitido, Validado, Cancelado.
+    // Usamos 'Emitido' para todos los boletos nuevos.
+    const estadoBoleto = 'Emitido'
+
+    const boletosInsert: BoletoPayload[] = input.asientos.map((asientoId) => {
       const uniqueSuffix = Math.random().toString(36).substring(2, 7)
       const qrCode = `QR-R${input.ruta.id}-V${ventaId}-A${asientoId}-${uniqueSuffix}`
       const barcode = `BC-R${input.ruta.id}-V${ventaId}-A${asientoId}-${uniqueSuffix}`
@@ -78,20 +103,20 @@ export class ConfirmarCompra {
         DescuentoAplicado: 0,
         CodigoQr: qrCode,
         CodigoBarras: barcode,
-        Estado: 'Emitido',
+        Estado: estadoBoleto,
         CreatedAt: new Date().toISOString(),
       }
     })
 
     const boletosRes = await this.boletosRepo.insertarBoletos(boletosInsert)
 
-    // 4. Auditoría (Opcional)
+    // 4. Auditoría
     if (this.auditRepo && input.usuarioId) {
       try {
         await this.auditRepo.logCambio({ 
           usuarioId: String(input.usuarioId), 
           tipoCambio: 'estandar', 
-          descripcion: `Nueva compra pendiente por transferencia. Venta ID: ${ventaId}`, 
+          descripcion: `Compra por ${input.metodoPago}. Venta ID: ${ventaId}. Stripe: ${input.stripeId || 'N/A'}`, 
           referenciaId: ventaId 
         })
       } catch (e) { 
@@ -101,7 +126,7 @@ export class ConfirmarCompra {
 
     return { 
       ventaId, 
-      comprobanteUrl: uploadRes.publicUrl, 
+      comprobanteUrl, 
       boletos: boletosRes 
     }
   }
