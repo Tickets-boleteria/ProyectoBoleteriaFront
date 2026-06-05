@@ -1,6 +1,7 @@
 export interface IVentaRepository {
   uploadComprobante(path: string, file: File, options?: any): Promise<{ publicUrl: string }>
   crearVenta(payload: VentaPayload): Promise<number>
+  cancelarVenta(ventaId: number): Promise<void>
   obtenerVentaPorId(ventaId: number): Promise<any | null>
   obtenerVentasPendientes(): Promise<any[]>
   aprobarVenta(ventaId: number, aprobadoPorId: string): Promise<void>

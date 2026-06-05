@@ -8,6 +8,7 @@ import { ConfirmarCompra } from '../../../Application/UseCases/ConfirmarCompra'
 import { SupabasePaymentRepository } from '../../../Infrastructure/Repositories/SupabasePaymentRepository'
 import { PrepararPagoStripe } from '../../../Application/UseCases/PrepararPagoStripe'
 import StripePaymentForm from '../../Components/StripePaymentForm.vue'
+import { calcularDescuentoBoleto } from '../../../Domain/Constants/EstadosSistema'
 
 interface RutaDisponible {
   id: number
@@ -611,16 +612,34 @@ const nombresPasajero = ref('')
 const apellidosPasajero = ref('')
 const cedulaPasajero = ref('')
 const fechaNacimientoPasajero = ref('')
+const tieneDiscapacidad = ref(false)
 const mostrarPago = ref(false)
+
+// Total con descuento (regla unica). Es la MISMA funcion que usa ConfirmarCompra,
+// asi el monto que cobra Stripe coincide con el Total que se guarda en la Venta.
+const totalConDescuento = computed(() => {
+  const n = asientosSeleccionados.value.length
+  if (n === 0 || precioSeleccionado.value <= 0) return 0
+  const fecha = fechaNacimientoPasajero.value.trim()
+  if (!fecha) return Number((precioSeleccionado.value * n).toFixed(2)) // sin fecha aun -> precio lleno
+  const d = calcularDescuentoBoleto(fecha, tieneDiscapacidad.value, precioSeleccionado.value)
+  return Number((d.precioFinal * n).toFixed(2))
+})
 
 const paymentRepo = new SupabasePaymentRepository()
 const prepararPagoStripe = new PrepararPagoStripe(paymentRepo)
 
 async function iniciarPagoTarjeta() {
   if (!rutaSeleccionada.value || asientosSeleccionados.value.length === 0) return
+  // La fecha de nacimiento debe estar antes de cobrar, para aplicar el descuento
+  // correcto y que el cobro de Stripe coincida con el Total guardado.
+  if (!fechaNacimientoPasajero.value.trim()) {
+    error.value = 'Ingresa la fecha de nacimiento del pasajero antes de pagar con tarjeta.'
+    return
+  }
   stripeLoading.value = true
   try {
-    const total = precioSeleccionado.value * asientosSeleccionados.value.length
+    const total = totalConDescuento.value
     const res = await prepararPagoStripe.ejecutar(total)
     clientSecret.value = res.clientSecret
     metodoPago.value = 'Tarjeta'
@@ -696,6 +715,7 @@ async function completarCompra(stripePaymentIntent?: any) {
       apellidos,
       cedula,
       fechaNacimiento,
+      tieneDiscapacidad: tieneDiscapacidad.value,
       usuarioId: authStore.user?.id ?? null,
     })
 
@@ -703,7 +723,7 @@ async function completarCompra(stripePaymentIntent?: any) {
       codigo: null,
       ruta: rutaSeleccionada.value!,
       asientos: [...asientosSeleccionados.value],
-      total: precioSeleccionado.value * asientosSeleccionados.value.length,
+      total: result.total,
       captura: result.comprobanteUrl,
       referencia: stripePaymentIntent?.id || referenciaPago.value,
       metodoPago: metodoPago.value
@@ -726,6 +746,8 @@ function resetUI() {
   nombresPasajero.value = ''
   apellidosPasajero.value = ''
   fechaNacimientoPasajero.value = ''
+  tieneDiscapacidad.value = false
+  metodoPago.value = 'Transferencia'
   clientSecret.value = ''
 }
 
@@ -868,7 +890,7 @@ watch(() => filtros.fecha, () => {
           </div>
           <button :disabled="asientosSeleccionados.length === 0" @click="mostrarPago = true"
             class="w-full mt-6 rounded-2xl bg-blue-600 py-4 font-black text-white shadow-xl hover:bg-blue-700">
-            Siguiente: Pago (${{ (precioSeleccionado * asientosSeleccionados.length).toFixed(2) }})
+            Siguiente: Pago (${{ totalConDescuento.toFixed(2) }})
           </button>
         </div>
 
@@ -914,6 +936,21 @@ watch(() => filtros.fecha, () => {
                 </div>
               </div>
 
+              <!-- Descuento por discapacidad + resumen del total -->
+              <div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 p-4">
+                <label class="flex items-center gap-2 text-sm font-bold text-slate-700">
+                  <input type="checkbox" v-model="tieneDiscapacidad" class="h-4 w-4 rounded border-slate-300"/>
+                  El pasajero tiene discapacidad
+                </label>
+                <p class="text-sm font-bold text-slate-600">
+                  Total a pagar:
+                  <span class="text-lg font-black text-emerald-700">${{ totalConDescuento.toFixed(2) }}</span>
+                </p>
+              </div>
+              <p class="-mt-3 text-xs text-slate-500">
+                El descuento (menor 30%, discapacidad/tercera edad 50%) se calcula con la fecha de nacimiento. No se acumulan: se aplica el mayor.
+              </p>
+
               <!-- Vista Transferencia -->
               <div v-if="metodoPago === 'Transferencia'" class="space-y-4">
                 <div class="p-6 border-2 border-dashed border-blue-200 rounded-3xl text-center">
@@ -932,7 +969,7 @@ watch(() => filtros.fecha, () => {
               <div v-else-if="clientSecret">
                 <StripePaymentForm 
                   :client-secret="clientSecret" 
-                  :amount="precioSeleccionado * asientosSeleccionados.length" 
+                  :amount="totalConDescuento" 
                   @success="completarCompra"
                 />
               </div>

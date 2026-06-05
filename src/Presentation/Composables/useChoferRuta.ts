@@ -106,6 +106,11 @@ export function useChoferRuta() {
   const historial = ref<HistorialEscaneo[]>([])
 
   const rutaProgramada = computed(() => rutaActual.value?.Estado === 'Programada')
+  // ValidarQR.vue usa rutaHabilitada para mostrar el boton "Iniciar ruta".
+  // Una ruta lista para iniciar puede estar Habilitada o Programada.
+  const rutaHabilitada = computed(
+    () => rutaActual.value?.Estado === 'Habilitada' || rutaActual.value?.Estado === 'Programada',
+  )
   const rutaEnCurso = computed(() => rutaActual.value?.Estado === 'EnCurso')
   const rutaCompletada = computed(() => rutaActual.value?.Estado === 'Completada')
   const rutaCancelada = computed(() => rutaActual.value?.Estado === 'Cancelada')
@@ -198,7 +203,7 @@ export function useChoferRuta() {
         `)
         .eq('ChoferId', choferCedula)
         .gte('Fecha', hoy())
-        .in('Estado', ['Programada', 'EnCurso'])
+        .in('Estado', ['Programada', 'Habilitada', 'EnCurso'])
         .order('Fecha', { ascending: true })
         .limit(1)
 
@@ -261,8 +266,8 @@ export function useChoferRuta() {
         throw new Error('No hay una ruta asignada.')
       }
 
-      if (rutaActual.value.Estado !== 'Programada') {
-        throw new Error('Solo se puede iniciar una ruta programada.')
+      if (rutaActual.value.Estado !== 'Programada' && rutaActual.value.Estado !== 'Habilitada') {
+        throw new Error('Solo se puede iniciar una ruta programada o habilitada.')
       }
 
       const busEstado = normalizarEstadoBus(String(getField(rutaActual.value.Buses, 'Estado') || 'Activo'))
@@ -549,6 +554,13 @@ export function useChoferRuta() {
         throw new Error(`Estado de boleto no válido para abordar: ${estadoBoleto}`)
       }
 
+      // El pago debe estar confirmado: Venta AprobadaPago (transferencia aprobada
+      // por oficinista) o Confirmada (tarjeta/efectivo). Una venta Pendiente no aborda.
+      const estadoVenta = String(getField(venta, 'Estado') || '')
+      if (estadoVenta !== 'AprobadaPago' && estadoVenta !== 'Confirmada') {
+        throw new Error('El pago de este boleto aún no ha sido confirmado.')
+      }
+
       const { error: updateError } = await supabase
         .from('Boletos')
         .update({ Estado: 'Validado' })
@@ -605,11 +617,13 @@ export function useChoferRuta() {
         CodigoQr,
         CodigoBarras,
         CedulaPasajero,
-        NombrePasajero,
+        NombresPasajero,
+        ApellidosPasajero,
         VentaId,
         Ventas!inner(
           Id,
-          RutaId
+          RutaId,
+          Estado
         )
       `)
       .or(`CodigoQr.eq.${codigo},CodigoBarras.eq.${codigo}`)
@@ -686,6 +700,7 @@ export function useChoferRuta() {
     resultado,
 
     rutaProgramada,
+    rutaHabilitada,
     rutaEnCurso,
     rutaCompletada,
     rutaCancelada,
