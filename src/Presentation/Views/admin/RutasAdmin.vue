@@ -54,7 +54,7 @@ function estadoBadgeClass(estado: EstadoRuta) {
     Programada: 'bg-slate-100 text-slate-700 border-slate-200',
     Habilitada: 'bg-blue-100 text-blue-700 border-blue-200',
     EnCurso: 'bg-amber-100 text-amber-700 border-amber-200',
-    Finalizada: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    Completada: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   }
 
   return classes[estado]
@@ -75,14 +75,14 @@ function accionPrincipalLabel(estado: EstadoRuta) {
     Programada: 'Habilitar',
     Habilitada: 'Iniciar viaje',
     EnCurso: 'Finalizar viaje',
-    Finalizada: 'Finalizada',
+    Completada: 'Completada',
   }
 
   return labels[estado]
 }
 
 function puedeAvanzar(estado: EstadoRuta) {
-  return estado !== 'Finalizada'
+  return estado !== 'Completada'
 }
 </script>
 
@@ -94,7 +94,7 @@ function puedeAvanzar(estado: EstadoRuta) {
       </h1>
 
       <p class="mt-2 text-sm text-slate-300">
-        Administra las rutas operativas, filtra por estado y controla el flujo Programada, Habilitada, EnCurso y Finalizada.
+        Administra las rutas operativas, filtra por estado y controla el flujo Programada, Habilitada, EnCurso y Completada.
       </p>
     </section>
 
@@ -405,7 +405,7 @@ function puedeAvanzar(estado: EstadoRuta) {
                   </button>
 
                   <span
-                    v-if="ruta.Estado === 'Finalizada'"
+                    v-if="ruta.Estado === 'Completada'"
                     class="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700"
                   >
                     Cerrada

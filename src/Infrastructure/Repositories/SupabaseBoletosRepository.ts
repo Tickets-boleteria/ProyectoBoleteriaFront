@@ -42,6 +42,128 @@ export class SupabaseBoletosRepository implements IBoletosRepository {
     return data
   }
 
+    async actualizarEstadoPorVenta(ventaId: number, estado: string): Promise<void> {
+    const boletos = await this.obtenerBoletosPorVenta(ventaId)
+
+    if (!boletos.length) {
+      throw new Error('La venta no tiene boletos asociados.')
+    }
+
+    if (estado === 'Pagado') {
+      for (const boleto of boletos) {
+        const boletoId = Number(getField(boleto, 'Id'))
+        const asientoId = Number(getField(boleto, 'AsientoId'))
+        const codigoQr = texto(getField(boleto, 'CodigoQr'))
+        const codigoBarras = texto(getField(boleto, 'CodigoBarras'))
+
+        if (!codigoQr || !codigoBarras) {
+          const unique = crypto.randomUUID()
+          const nuevoQr = codigoQr || `QR-V${ventaId}-B${boletoId}-A${asientoId}-${unique}`
+          const nuevoBar = codigoBarras || `BC-V${ventaId}-B${boletoId}-A${asientoId}-${unique}`
+
+          const { error } = await supabase
+            .from('Boletos')
+            .update({
+              CodigoQr: nuevoQr,
+              CodigoBarras: nuevoBar,
+            })
+            .eq('Id', boletoId)
+
+          if (error) throw new Error(error.message)
+        }
+      }
+    }
+
+    const { error } = await supabase
+      .from('Boletos')
+      .update({ Estado: estado })
+      .eq('VentaId', ventaId)
+
+    if (error) throw new Error(error.message)
+  }
+
+  async obtenerBoletosPorVenta(ventaId: number): Promise<any[]> {
+    const { data, error } = await supabase
+      .from('Boletos')
+      .select('*')
+      .eq('VentaId', ventaId)
+
+    if (error) throw new Error(error.message)
+
+    return data || []
+  }
+
+  async verificarAsientoDisponible(rutaId: number, asientoId: number): Promise<boolean> {
+  const { data: ventas, error: ventasError } = await supabase
+    .from('Ventas')
+    .select('Id')
+    .eq('RutaId', rutaId)
+    .in('Estado', ['Pendiente', 'AprobadaPago', 'Confirmada'])
+
+  if (ventasError) throw new Error(ventasError.message)
+
+  const ventaIds = (ventas || [])
+    .map((venta: any) => Number(getField(venta, 'Id')))
+    .filter(Boolean)
+
+  if (!ventaIds.length) return true
+
+  const { data: boleto, error: boletoError } = await supabase
+    .from('Boletos')
+    .select('Id')
+    .in('VentaId', ventaIds)
+    .eq('AsientoId', asientoId)
+    .in('Estado', ['Emitido', 'Validado'])
+    .maybeSingle()
+
+  if (boletoError) throw new Error(boletoError.message)
+
+  return !boleto
+}
+
+  async obtenerAsientosDisponiblesPorRuta(rutaId: number): Promise<any[]> {
+    const { data: ruta, error: rutaError } = await supabase
+      .from('Rutas')
+      .select('Id, BusId')
+      .eq('Id', rutaId)
+      .maybeSingle()
+
+    if (rutaError) throw new Error(rutaError.message)
+    if (!ruta) throw new Error('Ruta no encontrada.')
+
+    const busId = Number(getField(ruta, 'BusId'))
+
+    const { data: asientos, error: asientosError } = await supabase
+      .from('Asientos')
+      .select(`
+        Id,
+        BusId,
+        NumeroAsiento,
+        Tipo,
+        ConfiguracionesAsientos(
+          PrecioBase,
+          NombreTipo
+        )
+      `)
+      .eq('BusId', busId)
+      .order('NumeroAsiento', { ascending: true })
+
+    if (asientosError) throw new Error(asientosError.message)
+
+    const disponibles: any[] = []
+
+    for (const asiento of asientos || []) {
+      const asientoId = Number(getField(asiento, 'Id'))
+      const disponible = await this.verificarAsientoDisponible(rutaId, asientoId)
+
+      if (disponible) {
+        disponibles.push(asiento)
+      }
+    }
+
+    return disponibles
+  }
+
   async buscarBoletoParaValidacion(codigo: string): Promise<any | null> {
     const codigoLimpio = codigo.trim()
 
@@ -145,7 +267,7 @@ export class SupabaseBoletosRepository implements IBoletosRepository {
       }
     }
 
-    if (estadoBoleto !== 'pagado') {
+    if (estadoBoleto !== 'emitido') {
       await this.registrarValidacionFallidaSiExiste(boletoId, params, 'RECHAZADO_ESTADO_INVALIDO')
       return {
         ok: false,
@@ -352,7 +474,7 @@ export class SupabaseBoletosRepository implements IBoletosRepository {
     const actualizadoConFecha = await supabase
       .from('Boletos')
       .update({
-        Estado: 'En Viaje',
+        Estado: 'Validado',
         FechaValidacion: new Date().toISOString(),
       })
       .eq('Id', boletoId)

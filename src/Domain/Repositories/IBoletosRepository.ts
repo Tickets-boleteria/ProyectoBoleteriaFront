@@ -1,5 +1,9 @@
 export interface IBoletosRepository {
-  insertarBoletos(boletos: BoletoPayload[]): Promise<any>
+  insertarBoletos(boletos: BoletoPayload[]): Promise<any[]>
+  actualizarEstadoPorVenta(ventaId: number, estado: string): Promise<void>
+  obtenerBoletosPorVenta(ventaId: number): Promise<any[]>
+  verificarAsientoDisponible(rutaId: number, asientoId: number): Promise<boolean>
+  obtenerAsientosDisponiblesPorRuta(rutaId: number): Promise<any[]>
 
   buscarBoletoParaValidacion?(
     codigo: string
@@ -20,12 +24,12 @@ export interface BoletoPayload {
   NombresPasajero: string
   ApellidosPasajero: string
   CedulaPasajero: string
-  PrecioFinal: number
   FechaNacimiento: string
   EsMenor: boolean
   EsDiscapacitado: boolean
   EsTerceraEdad: boolean
   DescuentoAplicado: number
+  PrecioFinal: number
   CodigoQr: string
   CodigoBarras: string
   Estado: string

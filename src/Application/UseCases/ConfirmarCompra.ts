@@ -78,7 +78,7 @@ export class ConfirmarCompra {
         DescuentoAplicado: 0,
         CodigoQr: qrCode,
         CodigoBarras: barcode,
-        Estado: 'Pendiente',
+        Estado: 'Emitido',
         CreatedAt: new Date().toISOString(),
       }
     })

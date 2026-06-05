@@ -17,6 +17,7 @@ import MisBoletos from './Presentation/Views/cliente/MisBoletos.vue'
 import ValidarQR from './Presentation/Views/chofer/ValidarQR.vue'
 import Reportes from './Presentation/Views/reportes/Reportes.vue'
 import { useAuthStore } from './Presentation/Store/authStore'
+import  AprobarPago  from './Presentation/Views/oficinista/AprobarPago.vue'
 
 const ADMIN = ['admin', 'administrador']
 const OFICINISTA = ['oficinista']
@@ -78,10 +79,24 @@ const router = createRouter({
     },
 
     {
-      path: '/venta',
-      name: 'VentaBoletos',
+      path: '/oficinista/venta-boletos',
+      name: 'VentaBoletosOficinista',
       component: VentaBoletos,
-      meta: { roles: [...CLIENTE, ...OFICINISTA, ...CHOFER, ...ADMIN] },
+      meta: { roles: [...OFICINISTA, ...ADMIN] },
+    },
+
+    {
+      path: '/cliente/comprar-boleto',
+      name: 'ComprarBoletoCliente',
+      component: BuscarRutas,
+      meta: { roles: [...CLIENTE] },
+    },
+
+    {
+      path: '/oficinista/aprobar-pagos',
+      name: 'AprobarPago',
+      component: AprobarPago,
+      meta: { roles: [...OFICINISTA, ...ADMIN] },
     },
 
     {
