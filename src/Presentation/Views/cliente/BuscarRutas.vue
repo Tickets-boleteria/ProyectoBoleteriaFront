@@ -677,6 +677,11 @@ const totalConDescuento = computed(() => {
   return Number((d.precioFinal * n).toFixed(2))
 })
 
+const authStore = useAuthStore()
+
+const clientSecret = ref('')
+const stripeLoading = ref(false)
+
 const paymentRepo = new SupabasePaymentRepository()
 const prepararPagoStripe = new PrepararPagoStripe(paymentRepo)
 
