@@ -200,15 +200,17 @@ function puedeAvanzar(estado: EstadoRuta) {
 
         <div>
           <label class="text-xs font-bold text-slate-700">
-            Hoja de ruta (Opcional en creación)
+            Tipo de ruta
           </label>
 
-          <input
-            v-model="nuevaRuta.hojaRutaId"
-            type="number"
-            placeholder="Nº Hoja de ruta"
+          <select
+            v-model="nuevaRuta.esDirecto"
             class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-          />
+            required
+          >
+            <option :value="true">⚡ Directo</option>
+            <option :value="false">🚌 Con Paradas</option>
+          </select>
         </div>
 
         <div class="flex items-end">
@@ -294,6 +296,7 @@ function puedeAvanzar(estado: EstadoRuta) {
               <th class="py-3 pr-4">Fecha</th>
               <th class="py-3 pr-4">Bus</th>
               <th class="py-3 pr-4">Chofer</th>
+              <th class="py-3 pr-4">Tipo</th>
               <th class="py-3 pr-4">Estado</th>
               <th class="py-3 pr-4 text-right">Acciones</th>
             </tr>
@@ -332,6 +335,15 @@ function puedeAvanzar(estado: EstadoRuta) {
               <td class="py-4 pr-4">
                 <span class="font-bold text-slate-700">
                   {{ nombreChofer(ruta.ChoferId) }}
+                </span>
+              </td>
+
+              <td class="py-4 pr-4">
+                <span
+                  class="inline-flex rounded-full border px-3 py-1 text-xs font-black shadow-sm"
+                  :class="(ruta.es_directa || ruta.Frecuencias?.EsDirecto) ? 'bg-orange-500 text-white border-orange-600' : 'bg-emerald-500 text-white border-emerald-600'"
+                >
+                  {{ (ruta.es_directa || ruta.Frecuencias?.EsDirecto) ? '⚡ Directo' : '🚌 Con Paradas' }}
                 </span>
               </td>
 
