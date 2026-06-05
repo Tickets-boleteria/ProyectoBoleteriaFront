@@ -10,95 +10,60 @@ export class GestionarHojaRuta {
     private frecuenciaRepository: IFrecuenciaRepository
   ) {}
 
-  async generarAutomaticas(dto: GenerarHojasRutaAutomaticasDto): Promise<HojaRuta[]> {
-    this.validarFecha(dto.fechaSalida);
-
-    const frecuenciasActivas = await this.frecuenciaRepository.obtenerTodas();
-    const hojasCreadas: HojaRuta[] = [];
-
-    for (const frecuencia of frecuenciasActivas) {
-      const existente = await this.hojaRutaRepository.obtenerPorFrecuenciaYFecha(
-        frecuencia.id,
-        dto.fechaSalida
-      );
-
-      if (existente) continue;
-
-      const paradas = await this.obtenerNombresParadas(frecuencia);
-
-      const hoja = await this.hojaRutaRepository.crear({
-        frecuenciaId: frecuencia.id,
-        busId: null,
-        choferId: null,
-        fechaSalida: dto.fechaSalida,
-        horaSalida: frecuencia.horaSalida,
-        origen: frecuencia.ciudadOrigen,
-        destino: frecuencia.ciudadDestino,
-        paradas,
-        estado: 'PROGRAMADA',
-        tipoGeneracion: 'AUTOMATICA',
-        observaciones: 'Generada automáticamente desde frecuencia activa',
-      });
-
-      hojasCreadas.push(hoja);
-    }
-
-    return hojasCreadas;
+  async listarPorFecha(fecha: string): Promise<HojaRuta[]> {
+    this.validarFecha(fecha);
+    return this.hojaRutaRepository.obtenerPorFecha(fecha);
   }
 
-  async crearManual(dto: CrearHojaRutaManualDto): Promise<HojaRuta> {
-    this.validarFecha(dto.fechaSalida);
-
-    const frecuencia = await this.frecuenciaRepository.obtenerPorId(dto.frecuenciaId);
-    if (!frecuencia) {
-      throw new DomainException('No existe la frecuencia seleccionada');
-    }
-
-    if (!frecuencia.activa) {
-      throw new DomainException('No se puede generar hoja de ruta para una frecuencia inactiva');
-    }
-
-    const existente = await this.hojaRutaRepository.obtenerPorFrecuenciaYFecha(
-      dto.frecuenciaId,
-      dto.fechaSalida
-    );
-
-    if (existente) {
-      throw new DomainException('Ya existe una hoja de ruta para esa frecuencia y fecha');
-    }
-
-    const paradas = await this.obtenerNombresParadas(frecuencia);
+  async crearHojaDia(fecha: string, usuarioCreadorId: string): Promise<HojaRuta> {
+    this.validarFecha(fecha);
+    const existentes = await this.hojaRutaRepository.obtenerPorFecha(fecha);
+    if (existentes.length > 0) return existentes[0];
 
     return this.hojaRutaRepository.crear({
-      frecuenciaId: frecuencia.id,
-      busId: dto.busId ?? null,
-      choferId: dto.choferId ?? null,
-      fechaSalida: dto.fechaSalida,
-      horaSalida: dto.horaSalida || frecuencia.horaSalida,
-      origen: frecuencia.ciudadOrigen,
-      destino: frecuencia.ciudadDestino,
-      paradas,
-      estado: 'PROGRAMADA',
-      tipoGeneracion: 'MANUAL',
-      observaciones: dto.observaciones ?? null,
+      fecha,
+      usuarioCreadorId,
+      estado: 'Borrador',
+      tipoGeneracion: 'Manual',
+      rutas: []
     });
-  }
+    }
 
-  async listarPorFecha(fechaSalida: string): Promise<HojaRuta[]> {
-    this.validarFecha(fechaSalida);
-    return this.hojaRutaRepository.obtenerPorFecha(fechaSalida);
-  }
+    async iniciarRuta(id: number): Promise<void> {
+    await this.hojaRutaRepository.actualizarEstado(id, 'Publicada');
+    }
 
-  async iniciarRuta(id: number): Promise<void> {
-    await this.hojaRutaRepository.actualizarEstado(id, 'EN_CURSO');
-  }
+    async finalizarRuta(id: number): Promise<void> {
+    // 1. Actualizar estado de la hoja
+    await this.hojaRutaRepository.actualizarEstado(id, 'Cerrada');
 
-  async finalizarRuta(id: number): Promise<void> {
-    await this.hojaRutaRepository.actualizarEstado(id, 'FINALIZADA');
-  }
+    // 2. Opcional: Podríamos actualizar todas las rutas asociadas aquí, 
+    // pero usualmente las rutas se van completando una a una.
+    // Por integridad, forzamos el cierre de las rutas de esta hoja que sigan abiertas.
+    const hoja = await this.hojaRutaRepository.obtenerPorId(id);
+    if (hoja && hoja.rutas) {
+      const { supabase } = await import('../../Infrastructure/Api/supabaseClient');
+      await supabase
+        .from('Rutas')
+        .update({ Estado: 'Completada' })
+        .eq('HojaRutaId', id)
+        .in('Estado', ['Programada', 'Habilitada', 'EnCurso']);
+    }
+    }
 
-  async cancelarRuta(id: number): Promise<void> {
-    await this.hojaRutaRepository.actualizarEstado(id, 'CANCELADA');
+    async cancelarRuta(id: number): Promise<void> {
+    await this.hojaRutaRepository.actualizarEstado(id, 'Cerrada');
+
+    
+    const hoja = await this.hojaRutaRepository.obtenerPorId(id);
+    if (hoja && hoja.rutas) {
+      const { supabase } = await import('../../Infrastructure/Api/supabaseClient');
+      await supabase
+        .from('Rutas')
+        .update({ Estado: 'Cancelada' })
+        .eq('HojaRutaId', id)
+        .neq('Estado', 'Completada');
+    }
   }
 
   private validarFecha(fechaSalida: string): void {

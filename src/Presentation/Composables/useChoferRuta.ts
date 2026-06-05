@@ -682,7 +682,7 @@ export function useChoferRuta() {
       .insert({
         BoletoId: boletoId,
         FechaValidacion: new Date().toISOString(),
-        Resultado: 'VALIDADO',
+        Resultado: 'Exitosa',
       })
 
     if (validacionError) {

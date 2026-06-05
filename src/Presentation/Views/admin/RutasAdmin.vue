@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { watch, computed } from 'vue'
+import { watch, computed, ref } from 'vue'
 import { useRutas } from '../../Composables/useRutas'
+import { useUiStore } from '../../Store/uiStore'
 import { EstadoRuta, getEstadoRutaLabel } from '../../../Domain/Constants/EstadosSistema'
+import PaginationControls from '../../Components/PaginationControls.vue'
 
+const uiStore = useUiStore()
 const {
   ESTADOS_RUTA,
   rutasFiltradas,
@@ -17,11 +20,33 @@ const {
   loading,
   error,
   success,
+  cargarTodo,
   cargarBusesDisponibles,
   registrarRuta,
   avanzarEstadoRuta,
   cambiarEstadoRuta,
+  finalizarRuta,
 } = useRutas()
+
+// Paginación
+const currentPage = ref(1)
+const itemsPerPage = 8
+const totalItems = computed(() => rutasFiltradas.value.length)
+const totalPages = computed(() => Math.ceil(totalItems.value / itemsPerPage))
+
+const pagedRutas = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage
+  const end = start + itemsPerPage
+  return rutasFiltradas.value.slice(start, end)
+})
+
+watch([filtroEstado, filtroFecha, filtroTexto], () => {
+  currentPage.value = 1
+})
+
+const handlePrevPage = () => { if (currentPage.value > 1) currentPage.value-- }
+const handleNextPage = () => { if (currentPage.value < totalPages.value) currentPage.value++ }
+const handleSetPage = (p: number) => { currentPage.value = p }
 
 const fechaHoy = new Date().toISOString().split('T')[0];
 
@@ -56,17 +81,13 @@ function estadoBadgeClass(estado: EstadoRuta) {
     EnCurso: 'bg-amber-100 text-amber-700 border-amber-200',
     Completada: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   }
-
   return classes[estado]
 }
 
 function nombreChofer(cedula?: string | null) {
   if (!cedula) return 'Sin asignar'
-
   const chofer = choferes.value.find((item: any) => String(item.Cedula) === String(cedula))
-
   if (!chofer) return cedula
-
   return `${chofer.Nombres} ${chofer.Apellidos || ''}`
 }
 
@@ -77,351 +98,191 @@ function accionPrincipalLabel(estado: EstadoRuta) {
     EnCurso: 'Finalizar viaje',
     Completada: 'Completada',
   }
-
   return labels[estado]
 }
 
 function puedeAvanzar(estado: EstadoRuta) {
   return estado !== 'Completada'
 }
+
+async function handleAvanzar(ruta: any) {
+  const labels: Record<string, string> = {
+    Programada: '¿Deseas habilitar esta ruta para la venta de boletos?',
+    Habilitada: '¿Confirmas el inicio del viaje? El bus pasará a estado VIAJANDO.',
+    EnCurso: '¿Confirmas que el viaje ha finalizado con éxito?',
+  }
+  
+  const confirm = await uiStore.showConfirm({
+    title: 'Control de Operación',
+    message: labels[ruta.Estado] || '¿Confirmas esta acción?',
+    type: 'info'
+  })
+  
+  if (confirm) {
+    if (ruta.Estado === 'EnCurso') {
+      await finalizarRuta(ruta)
+    } else {
+      await avanzarEstadoRuta(ruta)
+    }
+  }
+}
+
+async function handleAbrirVenta(ruta: any) {
+  const confirm = await uiStore.showConfirm({
+    title: 'Abrir Venta',
+    message: '¿Habilitar inmediatamente la venta de boletos para esta unidad?',
+    type: 'success'
+  })
+  if (confirm) await cambiarEstadoRuta(ruta, 'Habilitada')
+}
+
+async function handleRegistrar() {
+  if (!nuevaRuta.value.frecuenciaId || !nuevaRuta.value.busId || !nuevaRuta.value.fecha) {
+    uiStore.showAlert({ title: 'Validación', message: 'Selecciona frecuencia, bus y fecha.', type: 'warning' })
+    return
+  }
+  await registrarRuta()
+  if (!error.value) {
+    uiStore.showAlert({ title: 'Ruta Creada', message: 'El trayecto ha sido programado correctamente.', type: 'success' })
+  }
+}
 </script>
 
 <template>
   <div class="space-y-6">
     <section class="rounded-[2rem] bg-slate-800 text-white shadow-2xl p-6 md:p-8">
-      <h1 class="text-2xl md:text-3xl font-black">
-        Control de rutas
-      </h1>
-
-      <p class="mt-2 text-sm text-slate-300">
-        Administra las rutas operativas, filtra por estado y controla el flujo Programada, Habilitada, EnCurso y Completada.
-      </p>
+      <h1 class="text-2xl md:text-3xl font-black">Control de rutas</h1>
+      <p class="mt-2 text-sm text-slate-300">Administra las rutas operativas y el flujo de los buses.</p>
     </section>
 
+    <!-- Resumen de Estados -->
     <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <button
-        v-for="item in resumenEstados"
-        :key="item.estado"
-        type="button"
+        v-for="item in resumenEstados" :key="item.estado"
         @click="filtroEstado = item.estado"
-        class="rounded-2xl border p-4 text-left shadow-sm transition-all"
-        :class="filtroEstado === item.estado
-          ? 'border-blue-500 bg-blue-50'
-          : 'border-slate-200 bg-white hover:border-blue-300'"
+        class="rounded-2xl border p-5 text-left transition-all active:scale-95"
+        :class="filtroEstado === item.estado ? 'border-blue-500 bg-blue-50 shadow-lg shadow-blue-100' : 'border-slate-200 bg-white hover:border-blue-300'"
       >
-        <p class="text-xs font-black uppercase tracking-wider text-slate-400">
-          {{ getEstadoRutaLabel(item.estado) }}
-        </p>
-
-        <p class="mt-2 text-3xl font-black text-slate-900">
-          {{ item.total }}
-        </p>
+        <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">{{ getEstadoRutaLabel(item.estado) }}</p>
+        <p class="mt-2 text-3xl font-black text-slate-900">{{ item.total }}</p>
       </button>
     </section>
 
-    <section class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
-      <h2 class="text-sm font-black uppercase tracking-wider text-slate-700 mb-4">
-        Crear nueva ruta
-      </h2>
-
-      <form @submit.prevent="registrarRuta" class="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div v-if="error" class="md:col-span-5 rounded-xl bg-red-50 border border-red-200 p-4 text-sm font-bold text-red-700">
-          {{ error }}
-        </div>
-
-        <div v-if="success" class="md:col-span-5 rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-sm font-bold text-emerald-700">
-          {{ success }}
-        </div>
-
-        <div>
-          <label class="text-xs font-bold text-slate-700">
-            Frecuencia
-          </label>
-
-          <select
-            v-model="nuevaRuta.frecuenciaId"
-            class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            required
-          >
-            <option value="">
-              Seleccione
-            </option>
-
-            <option
-              v-for="frecuencia in frecuencias"
-              :key="frecuencia.Id"
-              :value="frecuencia.Id"
-            >
-              {{ frecuencia.CiudadOrigen }} → {{ frecuencia.CiudadDestino }} · {{ frecuencia.HoraSalida }}
-            </option>
+    <!-- Formulario Crear -->
+    <section class="rounded-2xl bg-white p-6 shadow-md border border-slate-100">
+      <h2 class="text-sm font-black uppercase tracking-wider text-slate-700 mb-5">Programar Nuevo Viaje</h2>
+      <form @submit.prevent="handleRegistrar" class="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div v-if="error" class="md:col-span-5 rounded-xl bg-red-50 border border-red-200 p-4 text-sm font-bold text-red-700">{{ error }}</div>
+        
+        <div class="space-y-1">
+          <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Frecuencia</label>
+          <select v-model="nuevaRuta.frecuenciaId" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold focus:ring-4 focus:ring-blue-100 outline-none transition-all" required>
+            <option value="">Seleccione</option>
+            <option v-for="f in frecuencias" :key="f.Id" :value="f.Id">{{ f.CiudadOrigen }} → {{ f.CiudadDestino }} ({{ f.HoraSalida }})</option>
           </select>
         </div>
 
-        <div>
-          <label class="text-xs font-bold text-slate-700">
-            Fecha
-          </label>
-
-          <input
-            v-model="nuevaRuta.fecha"
-            type="date"
-            :min="fechaHoy"
-            class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            :class="{'border-red-500 bg-red-50 focus:ring-red-200': !isDiaValido}"
-            required
-          />
-          <p v-if="!isDiaValido" class="mt-1 text-[10px] text-red-600 font-bold leading-tight">
-            Esta frecuencia no opera en el día seleccionado. Días permitidos: {{ selectedFrecuencia?.DiasOperacion?.join(', ') }}
-          </p>
+        <div class="space-y-1">
+          <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Fecha</label>
+          <input v-model="nuevaRuta.fecha" type="date" :min="fechaHoy" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold focus:ring-4 focus:ring-blue-100 outline-none transition-all" :class="{'border-red-500 bg-red-50': !isDiaValido}" required />
         </div>
 
-        <div>
-          <label class="text-xs font-bold text-slate-700">
-            Bus disponible
-          </label>
-
-          <select
-            v-model="nuevaRuta.busId"
-            class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            :disabled="!isDiaValido"
-            required
-          >
-            <option value="">
-              Seleccione
-            </option>
-
-            <option
-              v-for="bus in busesDisponibles"
-              :key="bus.Id"
-              :value="bus.Id"
-            >
-              Bus {{ bus.Numero }} · {{ bus.Placa }} · {{ bus.TotalAsientos }} asientos
-            </option>
+        <div class="space-y-1">
+          <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Bus Disponible</label>
+          <select v-model="nuevaRuta.busId" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold focus:ring-4 focus:ring-blue-100 outline-none transition-all" :disabled="!isDiaValido" required>
+            <option value="">Seleccione</option>
+            <option v-for="bus in busesDisponibles" :key="bus.Id" :value="bus.Id">Unidad {{ bus.Numero }} ({{ bus.Placa }})</option>
           </select>
         </div>
 
-        <div>
-          <label class="text-xs font-bold text-slate-700">
-            Chofer
-          </label>
-
-          <select
-            v-model="nuevaRuta.choferId"
-            class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            :disabled="!isDiaValido"
-          >
-            <option value="">
-              Sin asignar
-            </option>
-
-            <option
-              v-for="chofer in choferes"
-              :key="chofer.Cedula"
-              :value="chofer.Cedula"
-            >
-              {{ chofer.Nombres }} {{ chofer.Apellidos || '' }} - {{ chofer.Cedula }}
-            </option>
-          </select>
-        </div>
-
-        <div>
-          <label class="text-xs font-bold text-slate-700">
-            Tipo de ruta
-          </label>
-
-          <select
-            v-model="nuevaRuta.esDirecto"
-            class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            required
-          >
-            <option :value="true">⚡ Directo</option>
-            <option :value="false">🚌 Con Paradas</option>
+        <div class="space-y-1">
+          <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Chofer</label>
+          <select v-model="nuevaRuta.choferId" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold focus:ring-4 focus:ring-blue-100 outline-none transition-all" :disabled="!isDiaValido">
+            <option value="">Sin asignar</option>
+            <option v-for="c in choferes" :key="c.Cedula" :value="c.Cedula">{{ c.Nombres }} {{ c.Apellidos }}</option>
           </select>
         </div>
 
         <div class="flex items-end">
-          <button
-            type="submit"
-            :disabled="loading || !isDiaValido"
-            class="w-full rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:text-slate-500 disabled:opacity-100 disabled:cursor-not-allowed shadow-sm transition-all"
-          >
-            Crear ruta
+          <button type="submit" :disabled="loading || !isDiaValido" class="w-full rounded-xl bg-blue-600 px-4 py-3.5 text-sm font-black text-white hover:bg-blue-700 shadow-lg shadow-blue-100 disabled:bg-slate-200 transition-all active:scale-95">
+            {{ loading ? '...' : 'Programar' }}
           </button>
         </div>
       </form>
-
     </section>
 
-    <section class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
-      <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-5">
+    <!-- Tabla Listado -->
+    <section class="rounded-2xl bg-white shadow-md border border-slate-100 overflow-hidden">
+      <div class="p-6 border-b border-slate-100 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
         <div>
-          <h2 class="text-sm font-black uppercase tracking-wider text-slate-700">
-            Rutas registradas
-          </h2>
-
-          <p class="text-sm text-slate-500 mt-1">
-            Filtra y controla el estado operativo de cada ruta.
-          </p>
+          <h2 class="text-sm font-black uppercase tracking-wider text-slate-700">Rutas Registradas</h2>
+          <p class="text-xs text-slate-400 mt-1 font-bold">Total: {{ totalItems }} registros filtrados</p>
         </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full lg:w-auto">
-          <div>
-            <label class="text-xs font-bold text-slate-700">
-              Estado
-            </label>
-
-            <select
-              v-model="filtroEstado"
-              class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            >
-              <option value="Todas">
-                Todas
-              </option>
-
-              <option
-                v-for="estado in ESTADOS_RUTA"
-                :key="estado"
-                :value="estado"
-              >
-                {{ getEstadoRutaLabel(estado) }}
-              </option>
-            </select>
-          </div>
-          <div>
-            <label class="text-xs font-bold text-slate-700">
-              Fecha
-            </label>
-
-            <input
-              v-model="filtroFecha"
-              type="date"
-              class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div>
-            <label class="text-xs font-bold text-slate-700">
-              Buscar
-            </label>
-
-            <input
-              v-model="filtroTexto"
-              type="text"
-              placeholder="Origen, destino, bus, placa..."
-              class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            />
-          </div>
+        <div class="flex flex-wrap gap-3">
+          <input v-model="filtroFecha" type="date" class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold outline-none focus:ring-4 focus:ring-blue-50" />
+          <input v-model="filtroTexto" type="text" placeholder="Buscar bus o destino..." class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold outline-none focus:ring-4 focus:ring-blue-50" />
         </div>
       </div>
 
       <div class="overflow-x-auto">
         <table class="min-w-full text-sm">
-          <thead>
-            <tr class="border-b border-slate-200 text-left text-xs uppercase tracking-wider text-slate-400">
-              <th class="py-3 pr-4">Ruta</th>
-              <th class="py-3 pr-4">Fecha</th>
-              <th class="py-3 pr-4">Bus</th>
-              <th class="py-3 pr-4">Chofer</th>
-              <th class="py-3 pr-4">Tipo</th>
-              <th class="py-3 pr-4">Estado</th>
-              <th class="py-3 pr-4 text-right">Acciones</th>
+          <thead class="bg-slate-50 border-b border-slate-100 text-[10px] uppercase font-black text-slate-400 tracking-widest">
+            <tr>
+              <th class="py-4 px-6 text-left">Ruta / Trayecto</th>
+              <th class="py-4 px-6 text-left">Unidad</th>
+              <th class="py-4 px-6 text-left">Estado</th>
+              <th class="py-4 px-6 text-right">Acciones</th>
             </tr>
           </thead>
-
-          <tbody>
-            <tr
-              v-for="ruta in rutasFiltradas"
-              :key="ruta.Id"
-              class="border-b border-slate-100"
-            >
-              <td class="py-4 pr-4">
-                <p class="font-black text-slate-900">
-                  {{ ruta.Frecuencias?.CiudadOrigen || 'Origen' }} → {{ ruta.Frecuencias?.CiudadDestino || 'Destino' }}
-                </p>
-
-                <p class="text-xs text-slate-500">
-                  Salida: {{ ruta.Frecuencias?.HoraSalida || '--:--' }}
-                </p>
+          <tbody class="divide-y divide-slate-100">
+            <tr v-for="ruta in pagedRutas" :key="ruta.Id" class="hover:bg-slate-50/50 transition-colors">
+              <td class="py-4 px-6">
+                <div class="font-black text-slate-900">{{ ruta.Frecuencias?.CiudadOrigen }} → {{ ruta.Frecuencias?.CiudadDestino }}</div>
+                <div class="flex items-center gap-2 mt-1">
+                   <span class="text-[10px] font-bold text-blue-500 uppercase">{{ ruta.Frecuencias?.HoraSalida }}</span>
+                   <span v-if="ruta.ObservacionChofer?.includes('INCIDENTE')" class="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[9px] font-black uppercase">🚨 Incidente</span>
+                   <span v-if="ruta.ObservacionChofer?.includes('Transbordo')" class="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[9px] font-black uppercase">🔄 Transbordo</span>
+                </div>
               </td>
-
-              <td class="py-4 pr-4 font-bold text-slate-700">
-                {{ ruta.Fecha }}
+              <td class="py-4 px-6">
+                <div class="font-bold text-slate-700">Unidad {{ ruta.Buses?.Numero || ruta.BusId }}</div>
+                <div class="text-[10px] text-slate-400 font-bold uppercase">{{ nombreChofer(ruta.ChoferId) }}</div>
               </td>
-
-              <td class="py-4 pr-4">
-                <p class="font-bold text-slate-700">
-                  Bus {{ ruta.Buses?.Numero || ruta.BusId }}
-                </p>
-
-                <p class="text-xs text-slate-500">
-                  {{ ruta.Buses?.Placa || 'Sin placa' }}
-                </p>
-              </td>
-
-              <td class="py-4 pr-4">
-                <span class="font-bold text-slate-700">
-                  {{ nombreChofer(ruta.ChoferId) }}
-                </span>
-              </td>
-
-              <td class="py-4 pr-4">
-                <span
-                  class="inline-flex rounded-full border px-3 py-1 text-xs font-black shadow-sm"
-                  :class="(ruta.es_directa || ruta.Frecuencias?.EsDirecto) ? 'bg-orange-500 text-white border-orange-600' : 'bg-emerald-500 text-white border-emerald-600'"
-                >
-                  {{ (ruta.es_directa || ruta.Frecuencias?.EsDirecto) ? '⚡ Directo' : '🚌 Con Paradas' }}
-                </span>
-              </td>
-
-              <td class="py-4 pr-4">
-                <span
-                  class="inline-flex rounded-full border px-3 py-1 text-xs font-black"
-                  :class="estadoBadgeClass(ruta.Estado)"
-                >
+              <td class="py-4 px-6">
+                <span class="px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-tight" :class="estadoBadgeClass(ruta.Estado)">
                   {{ getEstadoRutaLabel(ruta.Estado) }}
                 </span>
               </td>
-
-              <td class="py-4 pr-4">
+              <td class="py-4 px-6 text-right">
                 <div class="flex justify-end gap-2">
-                  <button
-                    v-if="puedeAvanzar(ruta.Estado)"
-                    type="button"
-                    @click="avanzarEstadoRuta(ruta)"
-                    :disabled="loading"
-                    class="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-700 disabled:opacity-50"
-                  >
+                  <button v-if="puedeAvanzar(ruta.Estado)" @click="handleAvanzar(ruta)" class="px-4 py-2 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95">
                     {{ accionPrincipalLabel(ruta.Estado) }}
                   </button>
-
-                  <button
-                    v-if="ruta.Estado === 'Programada'"
-                    type="button"
-                    @click="cambiarEstadoRuta(ruta, 'Habilitada')"
-                    :disabled="loading"
-                    class="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                  >
-                    Abrir venta
+                  <button v-if="ruta.Estado === 'Programada'" @click="handleAbrirVenta(ruta)" class="px-4 py-2 rounded-xl border-2 border-blue-100 text-blue-600 text-[10px] font-black uppercase hover:bg-blue-50 transition-all">
+                    Abrir Venta
                   </button>
-
-                  <span
-                    v-if="ruta.Estado === 'Completada'"
-                    class="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700"
-                  >
-                    Cerrada
-                  </span>
                 </div>
               </td>
             </tr>
-
-            <tr v-if="rutasFiltradas.length === 0">
-              <td colspan="6" class="py-8 text-center text-slate-500">
-                No hay rutas con los filtros seleccionados.
-              </td>
+            <tr v-if="pagedRutas.length === 0">
+              <td colspan="4" class="py-12 text-center text-slate-400 font-bold">No se encontraron rutas para los criterios seleccionados.</td>
             </tr>
           </tbody>
         </table>
       </div>
+
+      <PaginationControls
+        v-if="totalItems > itemsPerPage"
+        :current-page="currentPage"
+        :total-pages="totalPages"
+        :total-items="totalItems"
+        :items-per-page="itemsPerPage"
+        :has-prev-page="currentPage > 1"
+        :has-next-page="currentPage < totalPages"
+        @prev="handlePrevPage"
+        @next="handleNextPage"
+        @set-page="handleSetPage"
+      />
     </section>
   </div>
 </template>

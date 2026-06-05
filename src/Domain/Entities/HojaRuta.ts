@@ -1,28 +1,19 @@
-export type EstadoHojaRuta = 'PROGRAMADA' | 'EN_CURSO' | 'FINALIZADA' | 'CANCELADA';
-export type TipoGeneracionHojaRuta = 'AUTOMATICA' | 'MANUAL';
+import { Ruta } from './Ruta';
+import { EstadoHojaRuta, TipoGeneracionHoja } from '../Constants/EstadosSistema';
 
 export interface HojaRuta {
   id?: number;
-  frecuenciaId: number;
-  busId?: number | null;
-  choferId?: string | null;
-  fechaSalida: string; // YYYY-MM-DD
-  horaSalida: string; // HH:mm
-  origen: string;
-  destino: string;
-  paradas: string[];
+  usuarioCreadorId: string;
+  fecha: string; // YYYY-MM-DD
   estado: EstadoHojaRuta;
-  tipoGeneracion: TipoGeneracionHojaRuta;
+  tipoGeneracion: TipoGeneracionHoja;
   observaciones?: string | null;
   createdAt?: string;
+  rutas?: Ruta[];
 }
 
 export interface CrearHojaRutaManualDto {
-  frecuenciaId: number;
-  busId?: number;
-  choferId?: string;
-  fechaSalida: string;
-  horaSalida?: string;
+  fecha: string;
   observaciones?: string;
 }
 

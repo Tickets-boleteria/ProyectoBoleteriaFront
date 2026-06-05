@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { supabase } from '../../../Infrastructure/Api/supabaseClient'
 import { useAuthStore } from '../../Store/authStore'
 import { SupabaseVentasRepository } from '../../../Infrastructure/Repositories/SupabaseVentasRepository'
@@ -9,6 +9,7 @@ import { SupabasePaymentRepository } from '../../../Infrastructure/Repositories/
 import { PrepararPagoStripe } from '../../../Application/UseCases/PrepararPagoStripe'
 import StripePaymentForm from '../../Components/StripePaymentForm.vue'
 import { calcularDescuentoBoleto } from '../../../Domain/Constants/EstadosSistema'
+import PaginationControls from '../../Components/PaginationControls.vue'
 
 interface RutaDisponible {
   id: number
@@ -136,6 +137,61 @@ const resultados = computed(() => {
     (!filtros.fecha || r.fecha >= filtros.fecha)
   )
 })
+
+// Paginación
+const currentPage = ref(1)
+const itemsPerPage = 6
+const totalItems = computed(() => resultados.value.length)
+const totalPages = computed(() => Math.ceil(totalItems.value / itemsPerPage))
+
+const pagedResultados = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage
+  return resultados.value.slice(start, start + itemsPerPage)
+})
+
+watch(filtros, () => { currentPage.value = 1 })
+
+const handlePrevPage = () => { if (currentPage.value > 1) currentPage.value-- }
+const handleNextPage = () => { if (currentPage.value < totalPages.value) currentPage.value++ }
+const handleSetPage = (p: number) => { currentPage.value = p }
+
+// --- REALTIME LOGIC ---
+const realTimeChannel = ref<any>(null)
+
+function setupRealTime(rutaId: number) {
+  if (realTimeChannel.value) {
+    supabase.removeChannel(realTimeChannel.value)
+  }
+
+  // Escuchamos inserciones en Boletos. 
+  // Nota: Lo ideal es filtrar por la RutaId en el payload si es posible, 
+  // o refrescar si detectamos cualquier cambio que afecte la concurrencia.
+  realTimeChannel.value = supabase
+    .channel(`public:Boletos:sync`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'Boletos',
+      },
+      async (payload) => {
+        // Refrescamos solo si el boleto es de la ruta que estamos viendo
+        // Necesitamos verificar si el boleto pertenece a una venta de esta ruta.
+        // Por simplicidad en esta fase, refrescamos los ocupados.
+        console.log('Cambio detectado en asientos (RealTime):', payload)
+        await cargarAsientosOcupados(rutaId)
+      }
+    )
+    .subscribe()
+}
+
+onUnmounted(() => {
+  if (realTimeChannel.value) {
+    supabase.removeChannel(realTimeChannel.value)
+  }
+})
+// ----------------------
 
 const tiposDisponiblesPorBus = (busId: number) => configuracionesPorBus.value[busId] ?? []
 
@@ -603,8 +659,6 @@ function toggleAsiento(a: { numero: string; ocupado: boolean }) {
 
 // Paso 3: pago
 const metodoPago = ref<'Transferencia' | 'Tarjeta'>('Transferencia')
-const clientSecret = ref('')
-const stripeLoading = ref(false)
 const capture = ref<string | null>(null)
 const capturaArchivo = ref<File | null>(null)
 const referenciaPago = ref('')
@@ -628,8 +682,6 @@ const prepararPagoStripe = new PrepararPagoStripe(paymentRepo)
 
 async function iniciarPagoTarjeta() {
   if (!rutaSeleccionada.value || asientosSeleccionados.value.length === 0) return
-  // La fecha de nacimiento debe estar antes de cobrar, para aplicar el descuento
-  // correcto y que el cobro de Stripe coincida con el Total guardado.
   if (!fechaNacimientoPasajero.value.trim()) {
     error.value = 'Ingresa la fecha de nacimiento del pasajero antes de pagar con tarjeta.'
     return
@@ -666,8 +718,6 @@ const compraConfirmada = ref<null | {
   referencia: string
   metodoPago: string
 }>(null)
-
-const authStore = useAuthStore()
 
 async function completarCompra(stripePaymentIntent?: any) {
   if (!rutaSeleccionada.value || asientosSeleccionados.value.length === 0) return
@@ -769,6 +819,9 @@ const seleccionarRuta = async (ruta: RutaDisponible, tipoServicio: TipoServicio 
   asientosSeleccionados.value = []
   await cargarAsientosDelBus(ruta.busId)
   await cargarAsientosOcupados(ruta.id)
+  
+  // Sincronización en tiempo real
+  setupRealTime(ruta.id)
 }
 
 const volverABuscar = () => {
@@ -844,7 +897,7 @@ watch(() => filtros.fecha, () => {
 
       <!-- ===== Resultados ===== -->
       <section v-if="!rutaSeleccionada" class="grid gap-3">
-        <article v-for="r in resultados" :key="r.id"
+        <article v-for="r in pagedResultados" :key="r.id"
           class="rounded-2xl bg-white p-5 shadow-md border border-slate-100 hover:shadow-lg transition-all flex flex-wrap items-center gap-4">
           <div class="flex-1 min-w-[200px]">
             <p class="text-xs font-bold uppercase tracking-wider text-slate-400">{{ r.cooperativa }}</p>
@@ -864,6 +917,13 @@ watch(() => filtros.fecha, () => {
             Elegir asientos
           </button>
         </article>
+
+        <PaginationControls
+          v-if="totalItems > itemsPerPage"
+          :current-page="currentPage" :total-pages="totalPages" :total-items="totalItems" :items-per-page="itemsPerPage"
+          :has-prev-page="currentPage > 1" :has-next-page="currentPage < totalPages"
+          @prev="handlePrevPage" @next="handleNextPage" @set-page="handleSetPage"
+        />
       </section>
 
       <!-- ===== Selección de asientos ===== -->
@@ -878,12 +938,19 @@ watch(() => filtros.fecha, () => {
 
         <div class="rounded-2xl bg-white p-6 shadow-xl border border-slate-200 max-w-md mx-auto">
           <h3 class="font-black text-center mb-4">Selecciona tus asientos</h3>
-          <div class="grid grid-cols-5 gap-3">
+          
+          <div v-if="loadingAsientos" class="py-12 text-center">
+            <div class="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+            <p class="text-xs text-slate-400 mt-2 font-bold uppercase">Sincronizando disponibilidad...</p>
+          </div>
+
+          <div v-else class="grid grid-cols-5 gap-3">
             <template v-for="(a, idx) in asientosLayout" :key="a.numero">
               <button @click="toggleAsiento(a)" :disabled="a.ocupado"
-                class="aspect-square rounded-lg text-xs font-bold transition-all"
-                :class="a.ocupado ? 'bg-slate-300 text-slate-500' : asientosSeleccionados.includes(a.numero) ? 'bg-blue-600 text-white' : 'bg-white border-2 border-slate-200'">
+                class="aspect-square rounded-lg text-xs font-bold transition-all relative overflow-hidden"
+                :class="a.ocupado ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : asientosSeleccionados.includes(a.numero) ? 'bg-blue-600 text-white shadow-lg' : 'bg-white border-2 border-slate-100 hover:border-blue-300 text-slate-600'">
                 {{ a.numero }}
+                <div v-if="a.ocupado" class="absolute inset-0 flex items-center justify-center opacity-20 text-[8px]">❌</div>
               </button>
               <div v-if="idx % 4 === 1" class="aspect-square"></div>
             </template>

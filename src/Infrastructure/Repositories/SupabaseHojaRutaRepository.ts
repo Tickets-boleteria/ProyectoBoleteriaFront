@@ -1,8 +1,14 @@
 import { supabase } from '../Api/supabaseClient';
-import { EstadoHojaRuta, HojaRuta } from '../../Domain/Entities/HojaRuta';
+import { HojaRuta } from '../../Domain/Entities/HojaRuta';
+import { Ruta } from '../../Domain/Entities/Ruta';
 import { IHojaRutaRepository } from '../../Domain/Repositories/IHojaRutaRepository';
+import { 
+  normalizarEstadoRuta, 
+  normalizarEstadoHojaRuta, 
+  normalizarTipoGeneracionHoja,
+  EstadoHojaRuta
+} from '../../Domain/Constants/EstadosSistema';
 
-// Extractor robusto para leer las columnas sin importar mayúsculas o minúsculas
 const getFieldValue = (obj: any, fieldName: string) => {
   if (!obj) return undefined;
   const key = Object.keys(obj).find(k => k.toLowerCase() === fieldName.toLowerCase());
@@ -13,9 +19,16 @@ export class SupabaseHojaRutaRepository implements IHojaRutaRepository {
   private readonly tabla = 'HojasRuta';
 
   async crear(hojaRuta: Omit<HojaRuta, 'id' | 'createdAt'>): Promise<HojaRuta> {
+    const datosInsert = {
+      Fecha: hojaRuta.fecha,
+      Estado: hojaRuta.estado,
+      TipoGeneracion: hojaRuta.tipoGeneracion,
+      UsuarioCreadorId: hojaRuta.usuarioCreadorId,
+    };
+
     const { data, error } = await supabase
       .from(this.tabla)
-      .insert([this.toDatabase(hojaRuta)])
+      .insert([datosInsert])
       .select()
       .single();
 
@@ -26,83 +39,67 @@ export class SupabaseHojaRutaRepository implements IHojaRutaRepository {
   async obtenerPorId(id: number): Promise<HojaRuta | null> {
     const { data, error } = await supabase
       .from(this.tabla)
-      .select('*')
-      .eq('id', id)
-      .single();
+      .select('*, Rutas(*)')
+      .eq('Id', id)
+      .maybeSingle();
 
-    if (error && error.code !== 'PGRST116') {
+    if (error) {
       throw new Error(`Error obteniendo hoja de ruta: ${error.message}`);
     }
 
     return data ? this.fromDatabase(data) : null;
   }
 
-  async obtenerPorFecha(fechaSalida: string): Promise<HojaRuta[]> {
+  async obtenerPorFecha(fecha: string): Promise<HojaRuta[]> {
     const { data, error } = await supabase
       .from(this.tabla)
-      .select('*')
-      .eq('FechaSalida', fechaSalida)
-      .order('HoraSalida', { ascending: true });
+      .select('*, Rutas(*)')
+      .eq('Fecha', fecha)
+      .order('Id', { ascending: true });
 
     if (error) throw new Error(`Error listando hojas de ruta: ${error.message}`);
     return (data || []).map((item) => this.fromDatabase(item));
-  }
-
-  async obtenerPorFrecuenciaYFecha(frecuenciaId: number, fechaSalida: string): Promise<HojaRuta | null> {
-    const { data, error } = await supabase
-      .from(this.tabla)
-      .select('*')
-      .eq('FrecuenciaId', frecuenciaId)
-      .eq('FechaSalida', fechaSalida)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      throw new Error(`Error verificando hoja de ruta existente: ${error.message}`);
-    }
-
-    return data ? this.fromDatabase(data) : null;
   }
 
   async actualizarEstado(id: number, estado: EstadoHojaRuta): Promise<void> {
     const { error } = await supabase
       .from(this.tabla)
       .update({ Estado: estado })
-      .eq('id', id);
+      .eq('Id', id);
 
     if (error) throw new Error(`Error actualizando estado de hoja de ruta: ${error.message}`);
   }
 
   private fromDatabase(data: any): HojaRuta {
+    const rutasRaw = getFieldValue(data, 'Rutas') || [];
+    
     return {
-      id: getFieldValue(data, 'id'),
-      frecuenciaId: getFieldValue(data, 'frecuenciaid') ?? getFieldValue(data, 'frecuencia_id'),
-      busId: getFieldValue(data, 'busid') ?? getFieldValue(data, 'bus_id'),
-      choferId: getFieldValue(data, 'choferid') ?? getFieldValue(data, 'chofer_id'),
-      fechaSalida: getFieldValue(data, 'fechasalida') ?? getFieldValue(data, 'fecha_salida'),
-      horaSalida: getFieldValue(data, 'horasalida') ?? getFieldValue(data, 'hora_salida'),
-      origen: getFieldValue(data, 'origen'),
-      destino: getFieldValue(data, 'destino'),
-      paradas: getFieldValue(data, 'paradas') || [],
-      estado: getFieldValue(data, 'estado'),
-      tipoGeneracion: getFieldValue(data, 'tipogeneracion') ?? getFieldValue(data, 'tipo_generacion'),
-      observaciones: getFieldValue(data, 'observaciones'),
-      createdAt: getFieldValue(data, 'createdat') ?? getFieldValue(data, 'created_at'),
+      id: getFieldValue(data, 'id') || getFieldValue(data, 'Id'),
+      usuarioCreadorId: getFieldValue(data, 'UsuarioCreadorId'),
+      fecha: getFieldValue(data, 'fecha') || getFieldValue(data, 'Fecha'),
+      estado: normalizarEstadoHojaRuta(getFieldValue(data, 'Estado')),
+      tipoGeneracion: normalizarTipoGeneracionHoja(getFieldValue(data, 'TipoGeneracion')),
+      createdAt: getFieldValue(data, 'createdat') || getFieldValue(data, 'CreatedAt'),
+      rutas: rutasRaw.map((r: any) => this.mapearRuta(r))
     };
   }
 
-  private toDatabase(hojaRuta: Omit<HojaRuta, 'id' | 'createdAt'>) {
-    return {
-      FrecuenciaId: hojaRuta.frecuenciaId,
-      BusId: hojaRuta.busId,
-      ChoferId: hojaRuta.choferId,
-      FechaSalida: hojaRuta.fechaSalida,
-      HoraSalida: hojaRuta.horaSalida,
-      Origen: hojaRuta.origen,
-      Destino: hojaRuta.destino,
-      Paradas: hojaRuta.paradas,
-      Estado: hojaRuta.estado,
-      TipoGeneracion: hojaRuta.tipoGeneracion,
-      Observaciones: hojaRuta.observaciones,
-    };
+  private mapearRuta(data: any): Ruta {
+    const createdAtVal = getFieldValue(data, 'CreatedAt');
+
+    return new Ruta(
+      Number(getFieldValue(data, 'FrecuenciaId') || 0),
+      Number(getFieldValue(data, 'BusId') || 0),
+      String(getFieldValue(data, 'Fecha') || ''),
+      normalizarEstadoRuta(String(getFieldValue(data, 'Estado') || 'Programada')),
+      Number(getFieldValue(data, 'Id')),
+      getFieldValue(data, 'ChoferId'),
+      getFieldValue(data, 'HoraSalida'),
+      getFieldValue(data, 'HoraLlegada'),
+      getFieldValue(data, 'ObservacionChofer'),
+      createdAtVal ? new Date(createdAtVal) : undefined,
+      getFieldValue(data, 'HojaRutaId'),
+      getFieldValue(data, 'es_directa') ?? true
+    );
   }
 }

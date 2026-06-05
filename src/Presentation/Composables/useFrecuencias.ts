@@ -40,7 +40,7 @@ export function useFrecuencias() {
     error.value = '';
     success.value = '';
     try {
-      const cooperativaId = authStore.user?.cooperativaId;
+      const cooperativaId = (authStore.user as any)?.cooperativaId || (authStore.user as any)?.CooperativaId;
       if (!cooperativaId) {
         throw new Error('No se encontró la cooperativa del usuario autenticado.');
       }
@@ -49,10 +49,9 @@ export function useFrecuencias() {
         throw new Error('Debe seleccionar al menos un día de operación.');
       }
       
-      await repo.crear({ ...nuevaFrecuencia.value, cooperativaId });
+      await repo.crear({ ...nuevaFrecuencia.value, cooperativaId } as any);
       success.value = 'Trayecto (Frecuencia) registrado exitosamente.';
       
-      // Limpiar formulario y recargar datos
       nuevaFrecuencia.value = { ciudadOrigen: '', ciudadDestino: '', codigoAnt: '', resolucionAnt: '', horaSalida: '', esDirecto: true, diasOperacion: [...DIAS_SEMANA] };
       await cargarDatos();
     } catch (err: any) {
@@ -62,7 +61,45 @@ export function useFrecuencias() {
     }
   };
 
+  const actualizarFrecuencia = async (id: number, data: any) => {
+    loading.value = true;
+    error.value = '';
+    success.value = '';
+    try {
+      await repo.actualizar(id, data);
+      success.value = 'Frecuencia actualizada correctamente.';
+      await cargarDatos();
+    } catch (err: any) {
+      error.value = err.message || 'Error al actualizar la frecuencia.';
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const desactivarFrecuencia = async (id: number) => {
+    if (!confirm('¿Seguro que desea desactivar esta frecuencia?')) return;
+    loading.value = true;
+    try {
+      await repo.eliminarLogico(id);
+      success.value = 'Frecuencia desactivada.';
+      await cargarDatos();
+    } catch (err: any) {
+      error.value = err.message || 'Error al desactivar la frecuencia.';
+    } finally {
+      loading.value = false;
+    }
+  };
+
   onMounted(cargarDatos);
 
-  return { frecuencias, nuevaFrecuencia, loading, error, success, registrarFrecuencia };
+  return { 
+    frecuencias, 
+    nuevaFrecuencia, 
+    loading, 
+    error, 
+    success, 
+    registrarFrecuencia, 
+    actualizarFrecuencia, 
+    desactivarFrecuencia 
+  };
 }

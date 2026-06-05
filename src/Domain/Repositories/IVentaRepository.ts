@@ -6,6 +6,7 @@ export interface IVentaRepository {
   obtenerVentasPendientes(): Promise<any[]>
   aprobarVenta(ventaId: number, aprobadoPorId: string): Promise<void>
   rechazarVenta(ventaId: number, aprobadoPorId: string, observacion?: string): Promise<void>
+  migrarVentasARuta(oldRutaId: number, newRutaId: number): Promise<void>
 }
 
 export interface VentaPayload {
