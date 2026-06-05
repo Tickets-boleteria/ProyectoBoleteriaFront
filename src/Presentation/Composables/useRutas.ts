@@ -358,7 +358,7 @@ export function useRutas() {
     })
   }
 
-  async function verificarBusDisponible(busId: number, fecha: string) {
+  async function verificarBusDisponible(busId: number, fecha: string, frecuenciaId?: number, rutaActualId?: number) {
     const { data: busData, error: busError } = await supabase
       .from('Buses')
       .select('Id, Estado, CooperativaId')
@@ -379,17 +379,66 @@ export function useRutas() {
       throw new Error('El bus seleccionado no está activo.')
     }
 
-    const { data, error: err } = await supabase
+    const estadosActivos = ['Programada', 'Habilitada', 'EnCurso', 'En curso', 'En proceso']
+
+    if (!frecuenciaId) {
+      // Comportamiento legado si no hay frecuencia
+      let query = supabase
+        .from('Rutas')
+        .select('Id')
+        .eq('BusId', busId)
+        .eq('Fecha', fecha)
+        .in('Estado', estadosActivos)
+
+      if (rutaActualId) {
+        query = query.neq('Id', rutaActualId)
+      }
+
+      const { data, error: err } = await query.limit(1)
+
+      if (err) throw err
+      return !data || data.length === 0
+    }
+
+    // Validar por horario específico
+    const { data: frecData, error: frecError } = await supabase
+      .from('Frecuencias')
+      .select('HoraSalida')
+      .eq('Id', frecuenciaId)
+      .single()
+
+    if (frecError || !frecData) {
+      throw new Error('No se pudo obtener el horario de la frecuencia.')
+    }
+
+    const horaRequerida = getField(frecData, 'HoraSalida')
+
+    let query = supabase
       .from('Rutas')
-      .select('Id')
+      .select('Id, Frecuencias!inner(HoraSalida)')
       .eq('BusId', busId)
       .eq('Fecha', fecha)
-      .in('Estado', ['Programada', 'EnCurso'])
-      .limit(1)
+      .in('Estado', estadosActivos)
+
+    if (rutaActualId) {
+      query = query.neq('Id', rutaActualId)
+    }
+
+    const { data, error: err } = await query
 
     if (err) throw err
 
-    return !data || data.length === 0
+    if (data && data.length > 0) {
+      for (const ruta of data) {
+        const fData = getField(ruta, 'Frecuencias')
+        const horaAsignada = getField(fData, 'HoraSalida')
+        if (horaAsignada === horaRequerida) {
+          return false
+        }
+      }
+    }
+
+    return true
   }
 
   async function verificarChoferDisponible(choferCedula: string, fecha: string) {
@@ -481,11 +530,12 @@ export function useRutas() {
 
       const busDisponible = await verificarBusDisponible(
         Number(nuevaRuta.value.busId),
-        nuevaRuta.value.fecha
+        nuevaRuta.value.fecha,
+        Number(nuevaRuta.value.frecuenciaId)
       )
 
       if (!busDisponible) {
-        throw new Error('El bus seleccionado ya está asignado a una ruta activa en esa fecha.')
+        throw new Error('El bus seleccionado ya está asignado a una ruta activa en ese mismo horario y fecha.')
       }
 
       const choferDisponible = await verificarChoferDisponible(
@@ -808,10 +858,10 @@ export function useRutas() {
         throw new Error('No se puede cambiar el bus de una ruta cancelada.')
       }
 
-      const disponible = await verificarBusDisponible(nuevoBusId, ruta.Fecha)
+      const disponible = await verificarBusDisponible(nuevoBusId, ruta.Fecha, ruta.FrecuenciaId, ruta.Id)
 
       if (!disponible) {
-        throw new Error('El nuevo bus ya está asignado a otra ruta activa en esa fecha.')
+        throw new Error('El nuevo bus ya está asignado a otra ruta activa en ese mismo horario y fecha.')
       }
 
       const { error: err } = await supabase

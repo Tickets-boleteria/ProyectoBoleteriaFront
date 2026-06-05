@@ -37,9 +37,9 @@ export class  HabilitarRutaDiaria {
       throw new DomainException(`El bus con ID ${busId} no existe o no está en estado Activo.`);
     }
 
-    const esBusDisponible = await this.rutaRepo.verificarBusDisponible(busId, fecha);
+    const esBusDisponible = await this.rutaRepo.verificarBusDisponible(busId, fecha, frecuenciaId);
     if (!esBusDisponible) {
-      throw new DomainException(`El bus con ID ${busId} ya se encuentra asignado a una ruta activa para la fecha ${fecha}.`);
+      throw new DomainException(`El bus con ID ${busId} ya se encuentra asignado a una ruta activa en el mismo horario para la fecha ${fecha}.`);
     }
 
     const nuevaRuta = new Ruta(
