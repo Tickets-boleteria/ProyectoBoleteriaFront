@@ -112,7 +112,7 @@ describe('HabilitarRutaDiaria', () => {
     // Verificar que se llamaron los métodos correctos
     expect(mockFrecuenciaRepo.obtenerPorId).toHaveBeenCalledWith(1);
     expect(mockBusRepo.obtenerPorId).toHaveBeenCalledWith(10);
-    expect(mockRutaRepo.verificarBusDisponible).toHaveBeenCalledWith(10, '2026-05-25');
+    expect(mockRutaRepo.verificarBusDisponible).toHaveBeenCalledWith(10, '2026-05-25', 1);
     expect(mockRutaRepo.crearRuta).toHaveBeenCalled();
   });
 

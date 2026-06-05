@@ -6,6 +6,7 @@ import {
   ResultadoValidacionBoleto,
   ValidarBoletoAbordajeParams,
 } from '../../Domain/Repositories/IBoletosRepository'
+import { normalizarResultadoValidacion } from '../../Domain/Constants/EstadosSistema'
 
 const hoyLocal = () => {
   const fecha = new Date()
@@ -387,16 +388,21 @@ export class SupabaseBoletosRepository implements IBoletosRepository {
   }
 
   async registrarValidacionBoleto(payload: RegistroValidacionBoletoPayload): Promise<void> {
+    const payloadNormalizado = {
+      ...payload,
+      Resultado: normalizarResultadoValidacion(payload.Resultado)
+    }
+
     const { error } = await supabase
       .from('ValidacionesBoleto')
-      .insert(payload)
+      .insert(payloadNormalizado)
 
     if (!error) return
 
     const payloadMinimo = {
       BoletoId: payload.BoletoId,
       FechaValidacion: payload.FechaValidacion,
-      Resultado: payload.Resultado,
+      Resultado: normalizarResultadoValidacion(payload.Resultado),
     }
 
     const { error: errorMinimo } = await supabase

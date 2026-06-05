@@ -118,10 +118,12 @@ import { ref, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../Store/authStore'
+import { useUiStore } from '../Store/uiStore'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+const uiStore = useUiStore()
 
 const { user, ready, role } = storeToRefs(authStore)
 
@@ -271,7 +273,15 @@ function go(to: string) {
 }
 
 async function logout() {
-  if (!confirm('¿Estás seguro de cerrar sesión?')) return
+  const confirm = await uiStore.showConfirm({
+    title: 'Cerrar Sesión',
+    message: '¿Estás seguro de que deseas salir del sistema?',
+    type: 'warning',
+    confirmText: 'Cerrar Sesión',
+    cancelText: 'Permanecer'
+  })
+
+  if (!confirm) return
 
   await authStore.logout()
   router.push('/login')
