@@ -27,6 +27,7 @@ type RutaRow = {
   FechaObservacion?: string | null
   ExcepcionEmergencia?: boolean | null
   CreatedAt?: string
+  HojaRutaId?: number | null
   Frecuencias?: any
   Buses?: any
   Usuarios?: any
@@ -54,6 +55,7 @@ type FrecuenciaRow = {
   HoraSalida: string
   EsDirecto?: boolean
   Activa?: boolean
+  DiasOperacion?: string[]
 }
 
 type ChoferRow = {
@@ -253,7 +255,7 @@ export function useRutas() {
   async function cargarFrecuencias() {
     let query = supabase
       .from('Frecuencias')
-      .select('Id, CooperativaId, CiudadOrigen, CiudadDestino, HoraSalida, EsDirecto, Activa')
+      .select('Id, CooperativaId, CiudadOrigen, CiudadDestino, HoraSalida, EsDirecto, Activa, DiasOperacion')
       .eq('Activa', true)
       .order('CiudadOrigen', { ascending: true })
 
@@ -458,7 +460,34 @@ export function useRutas() {
         throw new Error('Seleccione una fecha.')
       }
 
-      // 1. Validar disponibilidad de chofer
+      // Validación de días de operación
+      const frecuencia = frecuencias.value.find(f => f.Id === Number(nuevaRuta.value.frecuenciaId))
+      if (frecuencia && frecuencia.DiasOperacion && frecuencia.DiasOperacion.length > 0) {
+        // Obtenemos el día de la semana para la fecha seleccionada.
+        // Añadimos T12:00:00 para evitar que la zona horaria desplace la fecha al día anterior.
+        const d = new Date(nuevaRuta.value.fecha + 'T12:00:00')
+        const diasSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+        const diaElegido = diasSemana[d.getDay()]
+
+        const normalizeDay = (day: string) => day.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        const diaElegidoNorm = normalizeDay(diaElegido)
+
+        const operaEsteDia = frecuencia.DiasOperacion.some((dia: string) => normalizeDay(dia) === diaElegidoNorm)
+
+        if (!operaEsteDia) {
+          throw new Error(`Esta frecuencia no opera los días ${diaElegido}. Días permitidos: ${frecuencia.DiasOperacion.join(', ')}.`)
+        }
+      }
+
+      const busDisponible = await verificarBusDisponible(
+        Number(nuevaRuta.value.busId),
+        nuevaRuta.value.fecha
+      )
+
+      if (!busDisponible) {
+        throw new Error('El bus seleccionado ya está asignado a una ruta activa en esa fecha.')
+      }
+
       const choferDisponible = await verificarChoferDisponible(
         String(nuevaRuta.value.choferId),
         nuevaRuta.value.fecha
@@ -570,6 +599,12 @@ export function useRutas() {
         return
       }
 
+      if (nuevoEstado === 'Habilitada') {
+        if (!ruta.HojaRutaId) {
+          throw new Error('No se puede habilitar una ruta sin una Hoja de Ruta generada y asociada. Por favor genere la hoja de ruta primero.')
+        }
+      }
+
       const { error: err } = await supabase
         .from('Rutas')
         .update({ Estado: nuevoEstado })
@@ -581,7 +616,9 @@ export function useRutas() {
 
       await cargarTodo()
     } catch (err: any) {
-      error.value = err.message || 'No se pudo cambiar el estado de la ruta.'
+      const msg = err.message || 'No se pudo cambiar el estado de la ruta.'
+      error.value = msg
+      alert(msg)
     } finally {
       loading.value = false
     }

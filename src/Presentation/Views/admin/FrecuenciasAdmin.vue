@@ -1,7 +1,19 @@
 <script setup lang="ts">
-import { useFrecuencias } from '../../Composables/useFrecuencias';
+import { useFrecuencias, DIAS_SEMANA } from '../../Composables/useFrecuencias';
 
 const { frecuencias, nuevaFrecuencia, loading, error, success, registrarFrecuencia } = useFrecuencias();
+
+function toggleDia(dia: string) {
+  if (!nuevaFrecuencia.value.diasOperacion) {
+    nuevaFrecuencia.value.diasOperacion = [];
+  }
+  const index = nuevaFrecuencia.value.diasOperacion.indexOf(dia);
+  if (index === -1) {
+    nuevaFrecuencia.value.diasOperacion.push(dia);
+  } else {
+    nuevaFrecuencia.value.diasOperacion.splice(index, 1);
+  }
+}
 </script>
 
 <template>

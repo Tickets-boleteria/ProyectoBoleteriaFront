@@ -49,10 +49,9 @@ export class SupabaseFrecuenciaRepository implements IFrecuenciaRepository {
         CiudadDestino: frecuencia.ciudadDestino,
         HoraSalida: frecuencia.horaSalida,
         EsDirecto: frecuencia.esDirecto,
-        Activa: frecuencia.activa,
-        CodigoAnt: frecuencia.codigoAnt || null,
-        ResolucionAnt: frecuencia.resolucionAnt || null,
-        DiasOperacion: frecuencia.diasOperacion || []
+        Activa: true,
+        CooperativaId: frecuencia.cooperativaId,
+        DiasOperacion: frecuencia.diasOperacion
       })
       .select()
       .single();

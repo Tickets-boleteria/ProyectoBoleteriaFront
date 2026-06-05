@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch } from 'vue'
+import { watch, computed } from 'vue'
 import { useRutas } from '../../Composables/useRutas'
 import { EstadoRuta, getEstadoRutaLabel } from '../../../Domain/Constants/EstadosSistema'
 
@@ -22,6 +22,25 @@ const {
   avanzarEstadoRuta,
   cambiarEstadoRuta,
 } = useRutas()
+
+const fechaHoy = new Date().toISOString().split('T')[0];
+
+const selectedFrecuencia = computed(() => {
+  return frecuencias.value.find(f => f.Id === Number(nuevaRuta.value.frecuenciaId));
+});
+
+const isDiaValido = computed(() => {
+  if (!nuevaRuta.value.fecha || !selectedFrecuencia.value || !selectedFrecuencia.value.DiasOperacion || selectedFrecuencia.value.DiasOperacion.length === 0) return true;
+  
+  const d = new Date(nuevaRuta.value.fecha + 'T12:00:00');
+  const diasSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  const diaElegido = diasSemana[d.getDay()];
+
+  const normalizeDay = (day: string) => day.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const diaElegidoNorm = normalizeDay(diaElegido);
+
+  return selectedFrecuencia.value.DiasOperacion.some((dia: string) => normalizeDay(dia) === diaElegidoNorm);
+});
 
 watch(
   () => nuevaRuta.value.fecha,
@@ -146,9 +165,14 @@ function puedeAvanzar(estado: EstadoRuta) {
           <input
             v-model="nuevaRuta.fecha"
             type="date"
+            :min="fechaHoy"
             class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            :class="{'border-red-500 bg-red-50 focus:ring-red-200': !isDiaValido}"
             required
           />
+          <p v-if="!isDiaValido" class="mt-1 text-[10px] text-red-600 font-bold leading-tight">
+            Esta frecuencia no opera en el día seleccionado. Días permitidos: {{ selectedFrecuencia?.DiasOperacion?.join(', ') }}
+          </p>
         </div>
 
         <div>
@@ -159,6 +183,7 @@ function puedeAvanzar(estado: EstadoRuta) {
           <select
             v-model="nuevaRuta.busId"
             class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            :disabled="!isDiaValido"
             required
           >
             <option value="">
@@ -183,6 +208,7 @@ function puedeAvanzar(estado: EstadoRuta) {
           <select
             v-model="nuevaRuta.choferId"
             class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            :disabled="!isDiaValido"
           >
             <option value="">
               Sin asignar
@@ -216,13 +242,14 @@ function puedeAvanzar(estado: EstadoRuta) {
         <div class="flex items-end">
           <button
             type="submit"
-            :disabled="loading"
-            class="w-full rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white hover:bg-blue-700 disabled:opacity-50"
+            :disabled="loading || !isDiaValido"
+            class="w-full rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:text-slate-500 disabled:opacity-100 disabled:cursor-not-allowed shadow-sm transition-all"
           >
             Crear ruta
           </button>
         </div>
       </form>
+
     </section>
 
     <section class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
@@ -260,7 +287,6 @@ function puedeAvanzar(estado: EstadoRuta) {
               </option>
             </select>
           </div>
-
           <div>
             <label class="text-xs font-bold text-slate-700">
               Fecha

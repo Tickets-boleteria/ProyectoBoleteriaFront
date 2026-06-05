@@ -41,7 +41,7 @@ export function esEstadoBusValido(estado: string): estado is EstadoBus {
 export function getEstadoRutaLabel(estado: EstadoRuta): string {
   const labels: Record<EstadoRuta, string> = {
     Programada: 'Programada',
-    Habilitada: 'Habilitada (En venta)',
+    Habilitada: 'Habilitada',
     EnCurso: 'En curso',
     Completada: 'Completada',
     Cancelada: 'Cancelada',
@@ -77,7 +77,7 @@ export function puedeCambiarEstadoRuta(
   nuevoEstado: EstadoRuta
 ): boolean {
   const flujo: Record<EstadoRuta, EstadoRuta[]> = {
-    Programada: ['Habilitada', 'Cancelada'],
+    Programada: ['Habilitada', 'EnCurso', 'Cancelada'],
     Habilitada: ['EnCurso', 'Cancelada'],
     EnCurso: ['Completada', 'Cancelada'],
     Completada: [],
