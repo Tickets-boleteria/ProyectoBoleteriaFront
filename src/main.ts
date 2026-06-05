@@ -39,7 +39,6 @@ const router = createRouter({
       component: Login,
       meta: { public: true },
     },
-
     {
       path: '/',
       name: 'Dashboard',
@@ -47,9 +46,6 @@ const router = createRouter({
       meta: { roles: TODOS },
     },
 
-    // =========================
-    // ADMINISTRADOR
-    // =========================
     {
       path: '/admin/usuarios',
       name: 'Usuarios',
@@ -74,11 +70,6 @@ const router = createRouter({
       component: HojaRutaAdmin,
       meta: { roles: ADMIN },
     },
-
-    // =========================
-    // RUTAS
-    // Administrador y oficinista
-    // =========================
     {
       path: '/admin/rutas',
       name: 'RutasAdmin',
@@ -86,10 +77,6 @@ const router = createRouter({
       meta: { roles: [...ADMIN, ...OFICINISTA] },
     },
 
-    // =========================
-    // VENTA
-    // Usuario final, oficinista, chofer y administrador
-    // =========================
     {
       path: '/venta',
       name: 'VentaBoletos',
@@ -97,9 +84,6 @@ const router = createRouter({
       meta: { roles: [...CLIENTE, ...OFICINISTA, ...CHOFER, ...ADMIN] },
     },
 
-    // =========================
-    // CLIENTE / USUARIO FINAL
-    // =========================
     {
       path: '/buscar',
       name: 'BuscarRutas',
@@ -113,21 +97,19 @@ const router = createRouter({
       meta: { roles: CLIENTE },
     },
 
-    // =========================
-    // ABORDAJE
-    // Oficinista, chofer y administrador
-    // =========================
     {
       path: '/abordaje',
       name: 'ValidarQR',
       component: ValidarQR,
-      meta: { roles: [...OFICINISTA, ...CHOFER, ...ADMIN] },
+      meta: { roles: [...CHOFER, ...ADMIN] },
+    },
+    {
+      path: '/chofer/validar-qr',
+      name: 'ValidarQRChofer',
+      component: ValidarQR,
+      meta: { roles: [...CHOFER, ...ADMIN] },
     },
 
-    // =========================
-    // REPORTES
-    // Oficinista y administrador
-    // =========================
     {
       path: '/reportes',
       name: 'Reportes',
@@ -179,7 +161,6 @@ router.beforeEach(async (to) => {
   }
 
   const userRole = normalizeRole(authStore.role)
-
   const normalizedAllowedRoles = allowedRoles.map(role => normalizeRole(role))
 
   if (userRole && normalizedAllowedRoles.includes(userRole)) {
