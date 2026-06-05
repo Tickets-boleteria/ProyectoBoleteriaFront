@@ -10,6 +10,7 @@
     "test:ui": "vitest --ui"
   },
   "dependencies": {
+    "@stripe/stripe-js": "^9.7.0",
     "@supabase/supabase-js": "^2.105.1",
     "axios": "^1.16.1",
     "html5-qrcode": "^2.3.8",

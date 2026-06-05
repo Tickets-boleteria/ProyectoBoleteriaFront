@@ -1,10 +1,16 @@
 import { supabase } from '../Api/supabaseClient'
 import { DomainException } from '../../Domain/Exceptions/DomainException'
-import { DashboardContextDto, DashboardResumenDto, DashboardQuickActionDto, DashboardChartPointDto, DashboardRouteDto, DashboardTripDto } from '../../Application/Dtos/DashboardResumenDto'
+import {
+  DashboardChartPointDto,
+  DashboardContextDto,
+  DashboardQuickActionDto,
+  DashboardResumenDto,
+  DashboardRouteDto,
+  DashboardTripDto,
+} from '../../Application/Dtos/DashboardResumenDto'
 import { IDashboardRepository } from '../../Domain/Repositories/IDashboardRepository'
 
-type TicketRow = Record<string, any>
-type RouteRow = Record<string, any>
+type Row = Record<string, any>
 
 const getFieldValue = (obj: any, fieldName: string) => {
   if (!obj) return undefined
@@ -12,32 +18,44 @@ const getFieldValue = (obj: any, fieldName: string) => {
   return key ? obj[key] : undefined
 }
 
+const getNested = (obj: any, path: string[]) => {
+  let current = obj
+
+  for (const segment of path) {
+    if (!current) return undefined
+
+    if (Array.isArray(current)) {
+      current = current[0]
+    }
+
+    current =
+      current[segment] ??
+      current[segment.toLowerCase()] ??
+      current[segment.toUpperCase()]
+  }
+
+  return current
+}
+
 const normalizeRole = (role: string) => {
   const r = (role || '').toLowerCase().trim()
-  if (r === 'administrador' || r === 'admin' || r === 'oficinista' || r === 'chofer') {
-    return 'cooperativa'
-  }
+
+  if (r === 'administrador') return 'admin'
+  if (r === 'usuario final') return 'cliente'
+
+  return r
+}
+
+const tipoPorRol = (role: string): 'cliente' | 'cooperativa' | 'chofer' => {
+  const rol = normalizeRole(role)
+
+  if (rol === 'chofer') return 'chofer'
+  if (rol === 'admin' || rol === 'oficinista') return 'cooperativa'
+
   return 'cliente'
 }
 
-const toDateKey = (value: Date) => value.toISOString().slice(0, 10)
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
-
-const formatNumber = (value: number) =>
-  new Intl.NumberFormat('es-EC', { maximumFractionDigits: 0 }).format(value)
-
-const formatPct = (value: number) => `${Math.round(value)}%`
-
-const getNested = (obj: any, path: string[]) => {
-  let current = obj
-  for (const segment of path) {
-    if (!current) return undefined
-    current = current[segment] ?? current[segment.toLowerCase()] ?? current[segment.toUpperCase()]
-  }
-  return current
-}
+const toDateKey = (date: Date) => date.toISOString().slice(0, 10)
 
 const startOfDayIso = (date: Date) => {
   const copy = new Date(date)
@@ -63,139 +81,98 @@ const addMonths = (date: Date, months: number) => {
   return copy
 }
 
+const startOfCurrentWeek = () => {
+  const today = new Date()
+  const day = today.getUTCDay()
+  const diffToMonday = day === 0 ? -6 : 1 - day
+  const monday = addDays(today, diffToMonday)
+  monday.setUTCHours(0, 0, 0, 0)
+  return monday
+}
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat('es-EC', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 2,
+  }).format(value)
+
+const formatNumber = (value: number) =>
+  new Intl.NumberFormat('es-EC', {
+    maximumFractionDigits: 0,
+  }).format(value)
+
+const formatPct = (value: number) => `${Math.round(value)}%`
+
 const monthLabel = (date: Date) =>
   new Intl.DateTimeFormat('es-EC', { month: 'short' }).format(date).replace('.', '')
 
 export class SupabaseDashboardRepository implements IDashboardRepository {
   async obtenerResumen(contexto: DashboardContextDto): Promise<DashboardResumenDto> {
-    const tipo = normalizeRole(contexto.rol)
-    return tipo === 'cliente'
-      ? this.obtenerResumenCliente(contexto)
-      : this.obtenerResumenCooperativa(contexto)
+    await this.rechazarBoletosVencidos()
+
+    const tipo = tipoPorRol(contexto.rol)
+
+    if (tipo === 'chofer') {
+      return this.obtenerResumenChofer(contexto)
+    }
+
+    if (tipo === 'cliente') {
+      return this.obtenerResumenCliente(contexto)
+    }
+
+    return this.obtenerResumenCooperativa(contexto)
   }
 
-  private async obtenerResumenCooperativa(contexto: DashboardContextDto): Promise<DashboardResumenDto> {
-    const hoy = new Date()
-    const todayKey = toDateKey(hoy)
-    const yesterday = addDays(hoy, -1)
-    const weekStart = addDays(hoy, -6)
-    const monthStart = addMonths(hoy, -1)
-    const coopId = contexto.cooperativaId ?? null
-
-    const [ticketsResultado, rutasResultado] = await Promise.all([
-      supabase
-        .from('Boletos')
-        .select(`
-          Id, PrecioFinal, CreatedAt, CedulaPasajero, VentaId, AsientoId,
-          Asientos(NumeroAsiento, Fila, Columna),
-          Ventas!inner(
-            Id, RutaId,
-            Rutas!inner(
-              Id, Fecha, FrecuenciaId, BusId,
-              Frecuencias!inner(Id, CiudadOrigen, CiudadDestino, CooperativaId, Cooperativas!inner(Id, Nombre)),
-              Buses!inner(Id, TotalAsientos, CooperativaId)
+  private async rechazarBoletosVencidos() {
+    const { data, error } = await supabase
+      .from('Boletos')
+      .select(`
+        Id,
+        Estado,
+        Ventas!inner(
+          Id,
+          RutaId,
+          Rutas!inner(
+            Id,
+            Fecha,
+            Frecuencias!inner(
+              Id,
+              HoraSalida
             )
           )
-        `)
-        .gte('CreatedAt', startOfDayIso(monthStart))
-        .lte('CreatedAt', endOfDayIso(hoy)),
-      supabase
-        .from('Rutas')
-        .select(`
-          Id, Fecha, Estado, BusId, FrecuenciaId,
-          Frecuencias!inner(Id, CiudadOrigen, CiudadDestino, CooperativaId, Cooperativas!inner(Id, Nombre)),
-          Buses!inner(Id, TotalAsientos, CooperativaId)
-        `)
-        .eq('Fecha', todayKey)
-    ])
-
-    if (ticketsResultado.error) {
-      throw new DomainException(`No se pudo cargar el dashboard: ${ticketsResultado.error.message}`)
-    }
-
-    if (rutasResultado.error) {
-      throw new DomainException(`No se pudo cargar las rutas del dashboard: ${rutasResultado.error.message}`)
-    }
-
-    const tickets = (ticketsResultado.data || []) as TicketRow[]
-    const rutasHoy = (rutasResultado.data || []) as RouteRow[]
-
-    const ticketsFiltrados = tickets.filter(ticket => this.coincideCooperativa(ticket, coopId))
-    const ticketsHoy = ticketsFiltrados.filter(ticket => this.ticketEsDelDia(ticket, todayKey))
-    const ticketsAyer = ticketsFiltrados.filter(ticket => this.ticketEsDelDia(ticket, toDateKey(yesterday)))
-    const boletosSemana = ticketsFiltrados.filter(ticket => this.ticketEsDesde(ticket, weekStart))
-
-    const rutasFiltradas = rutasHoy.filter(ruta => this.coincideCooperativa(ruta, coopId))
-    const rutasAyerResultado = await supabase
-      .from('Rutas')
-      .select(`
-        Id, Fecha, Estado, BusId, FrecuenciaId,
-        Frecuencias!inner(Id, CiudadOrigen, CiudadDestino, CooperativaId),
-        Buses!inner(Id, TotalAsientos, CooperativaId)
+        )
       `)
-      .eq('Fecha', toDateKey(yesterday))
+      .eq('Estado', 'Emitido')
 
-    if (rutasAyerResultado.error) {
-      throw new DomainException(`No se pudo calcular la comparación del dashboard: ${rutasAyerResultado.error.message}`)
+    if (error) {
+      return
     }
 
-    const rutasAyer = (rutasAyerResultado.data || []).filter((ruta: RouteRow) => this.coincideCooperativa(ruta, coopId))
+    const ahora = new Date()
+    const boletosVencidos: number[] = []
 
-    const busesUnicosHoy = new Map<number, number>()
-    for (const ruta of rutasFiltradas) {
-      const busId = Number(getFieldValue(ruta, 'BusId') ?? getFieldValue(ruta, 'busid'))
-      const totalAsientos = Number(getNested(ruta, ['Buses', 'TotalAsientos']) ?? 0)
-      if (busId && !busesUnicosHoy.has(busId)) {
-        busesUnicosHoy.set(busId, totalAsientos)
+    for (const boleto of data || []) {
+      const boletoId = Number(getFieldValue(boleto, 'Id'))
+      const fechaRuta = String(getNested(boleto, ['Ventas', 'Rutas', 'Fecha']) ?? '')
+      const horaSalida = String(getNested(boleto, ['Ventas', 'Rutas', 'Frecuencias', 'HoraSalida']) ?? '00:00').slice(0, 5)
+
+      if (!boletoId || !fechaRuta) continue
+
+      const fechaHoraSalida = new Date(`${fechaRuta}T${horaSalida}:00`)
+      const limite = new Date(fechaHoraSalida.getTime() + 30 * 60 * 1000)
+
+      if (ahora > limite) {
+        boletosVencidos.push(boletoId)
       }
     }
 
-    const boletosHoyCount = ticketsHoy.length
-    const boletosAyerCount = ticketsAyer.length
-    const boletosSemanaCount = boletosSemana.length
-    const recaudacionHoy = ticketsHoy.reduce((suma, ticket) => suma + Number(getFieldValue(ticket, 'PrecioFinal') ?? 0), 0)
-    const recaudacionAyer = ticketsAyer.reduce((suma, ticket) => suma + Number(getFieldValue(ticket, 'PrecioFinal') ?? 0), 0)
-    const ocupacionHoy = this.calcularOcupacion(ticketsHoyCount, Array.from(busesUnicosHoy.values()).reduce((a, b) => a + b, 0))
-    const ocupacionAyer = this.calcularOcupacion(boletosAyerCount, this.calcularAsientosTotales(rutasAyer))
+    if (boletosVencidos.length === 0) return
 
-    const ventasSemana = this.construirSerieSemanal(boletosSemana, weekStart)
-    const rutasTop = this.construirTopRutas(boletosSemana, coopId)
-
-    return {
-      tipo: 'cooperativa',
-      rolMensaje: this.mensajePorRol(contexto.rol),
-      kpis: [
-        {
-          label: 'Boletos hoy',
-          value: formatNumber(boletosHoyCount),
-          delta: this.calcularVariacion(boletosHoyCount, boletosAyerCount),
-          icon: '🎟️',
-        },
-        {
-          label: 'Recaudación',
-          value: formatCurrency(recaudacionHoy),
-          delta: this.calcularVariacion(recaudacionHoy, recaudacionAyer),
-          icon: '💰',
-        },
-        {
-          label: 'Buses en ruta',
-          value: formatNumber(rutasFiltradas.length),
-          delta: this.calcularVariacion(rutasFiltradas.length, rutasAyer.length),
-          icon: '🚌',
-        },
-        {
-          label: 'Ocupación media',
-          value: formatPct(ocupacionHoy),
-          delta: Math.round(ocupacionHoy - ocupacionAyer),
-          icon: '📈',
-        },
-      ],
-      ventasSemana,
-      rutasTop,
-      gastosMeses: [],
-      proximoViaje: null,
-      accesosRapidos: this.accesosCooperativa(),
-    }
+    await supabase
+      .from('Boletos')
+      .update({ Estado: 'Cancelado' })
+      .in('Id', boletosVencidos)
   }
 
   private async obtenerResumenCliente(contexto: DashboardContextDto): Promise<DashboardResumenDto> {
@@ -204,10 +181,10 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
         tipo: 'cliente',
         rolMensaje: 'Encuentra tu próximo viaje en pocos clics.',
         kpis: [
-          { label: 'Viajes hechos', value: '0', hint: 'Histórico total', icon: '🗺️' },
-          { label: 'Gasto total', value: formatCurrency(0), hint: 'En 12 meses', icon: '💵' },
-          { label: 'Próximo viaje', value: 'Sin datos', hint: 'Aún no hay reservas', icon: '⏳' },
-          { label: 'Cooperativa fav', value: 'N/D', hint: 'Sin viajes registrados', icon: '⭐' },
+          { label: 'Boletos comprados', value: '0', hint: 'Histórico personal', icon: '🎟️' },
+          { label: 'Total gastado', value: formatCurrency(0), hint: 'Suma de tus boletos', icon: '💵' },
+          { label: 'Boletos activos', value: '0', hint: 'Pagados o en viaje', icon: '🧾' },
+          { label: 'Rechazados', value: '0', hint: 'No abordados a tiempo', icon: '⚠️' },
         ],
         ventasSemana: [],
         rutasTop: [],
@@ -219,56 +196,101 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
 
     const hoy = new Date()
     const todayKey = toDateKey(hoy)
-    const monthStart = addMonths(hoy, -5)
+    const inicioMeses = addMonths(hoy, -5)
 
     const { data, error } = await supabase
       .from('Boletos')
       .select(`
-        Id, PrecioFinal, CreatedAt, CedulaPasajero, AsientoId,
-        Asientos(NumeroAsiento, Fila, Columna),
+        Id,
+        Estado,
+        PrecioFinal,
+        CreatedAt,
+        CedulaPasajero,
+        AsientoId,
+        Asientos(
+          NumeroAsiento,
+          Fila,
+          Columna
+        ),
         Ventas!inner(
-          Id, RutaId,
+          Id,
+          RutaId,
           Rutas!inner(
-            Id, Fecha, FrecuenciaId, BusId,
-            Frecuencias!inner(Id, CiudadOrigen, CiudadDestino, CooperativaId, Cooperativas!inner(Id, Nombre)),
-            Buses!inner(Id, TotalAsientos, CooperativaId)
+            Id,
+            Fecha,
+            Frecuencias!inner(
+              Id,
+              CiudadOrigen,
+              CiudadDestino,
+              HoraSalida,
+              Cooperativas!inner(
+                Id,
+                Nombre
+              )
+            )
           )
         )
       `)
       .eq('CedulaPasajero', contexto.cedula)
-      .gte('CreatedAt', startOfDayIso(monthStart))
-      .lte('CreatedAt', endOfDayIso(hoy))
 
     if (error) {
-      throw new DomainException(`No se pudo cargar el panel del cliente: ${error.message}`)
+      throw new DomainException(`No se pudo cargar el dashboard del cliente: ${error.message}`)
     }
 
-    const tickets = (data || []) as TicketRow[]
-    const ticketsOrdenados = [...tickets].sort((a, b) => {
+    const boletos = (data || []) as Row[]
+
+    const totalBoletos = boletos.length
+
+    const totalGastado = boletos
+      .filter(boleto => ['Emitido', 'Validado'].includes(String(getFieldValue(boleto, 'Estado'))))
+      .reduce((suma, boleto) => suma + Number(getFieldValue(boleto, 'PrecioFinal') ?? 0), 0)
+
+    const activos = boletos.filter(boleto =>
+      ['Emitido', 'Validado'].includes(String(getFieldValue(boleto, 'Estado')))
+    ).length
+
+    const rechazados = boletos.filter(boleto =>
+      String(getFieldValue(boleto, 'Estado')) === 'Cancelado'
+    ).length
+
+    const gastosMeses = this.construirGastosMensuales(boletos, inicioMeses)
+
+    const boletosOrdenados = [...boletos].sort((a, b) => {
       const fechaA = this.extraerFechaViaje(a) ?? ''
       const fechaB = this.extraerFechaViaje(b) ?? ''
       return fechaA.localeCompare(fechaB)
     })
 
-    const viajesHechos = tickets.length
-    const gastoTotal = tickets.reduce((suma, ticket) => suma + Number(getFieldValue(ticket, 'PrecioFinal') ?? 0), 0)
-    const gastosMeses = this.construirGastosMensuales(tickets, monthStart)
-    const proximoViaje = this.construirProximoViaje(ticketsOrdenados, todayKey)
-    const cooperativaFav = this.construirCooperativaFavorita(tickets)
+    const proximoViaje = this.construirProximoViajeCliente(boletosOrdenados, todayKey)
 
     return {
       tipo: 'cliente',
-      rolMensaje: this.mensajePorRol(contexto.rol),
+      rolMensaje: 'Consulta tus boletos, tu gasto total y tu próximo viaje.',
       kpis: [
-        { label: 'Viajes hechos', value: formatNumber(viajesHechos), hint: 'Histórico total', icon: '🗺️' },
-        { label: 'Gasto total', value: formatCurrency(gastoTotal), hint: 'Últimos 6 meses', icon: '💵' },
         {
-          label: 'Próximo viaje',
-          value: proximoViaje ? this.formatearDiasRestantes(proximoViaje.fecha) : 'Sin datos',
-          hint: proximoViaje ? `${proximoViaje.origen} → ${proximoViaje.destino}` : 'Aún no hay reservas',
-          icon: '⏳',
+          label: 'Boletos comprados',
+          value: formatNumber(totalBoletos),
+          hint: 'Histórico personal',
+          icon: '🎟️',
         },
-        { label: 'Cooperativa fav', value: cooperativaFav.nombre, hint: cooperativaFav.viajes, icon: '⭐' },
+        {
+          label: 'Total gastado',
+          value: formatCurrency(totalGastado),
+          hint: 'Boletos pagados, en viaje o finalizados',
+          icon: '💵',
+        },
+        {
+          label: 'Boletos activos',
+          value: formatNumber(activos),
+          hint: 'Pagados o en viaje',
+          icon: '🧾',
+        },
+        {
+          label: 'Rechazados',
+          value: formatNumber(rechazados),
+          hint: 'No escaneados a tiempo',
+          icon: '⚠️',
+        },
       ],
       ventasSemana: [],
       rutasTop: [],
@@ -278,33 +300,376 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
     }
   }
 
-  private coincideCooperativa(registro: any, cooperativaId: number | null) {
+  private async obtenerResumenCooperativa(contexto: DashboardContextDto): Promise<DashboardResumenDto> {
+    const hoy = new Date()
+    const todayKey = toDateKey(hoy)
+    const inicioSemana = startOfCurrentWeek()
+    const ayer = addDays(hoy, -1)
+    const coopId = contexto.cooperativaId ?? null
+
+    const [boletosSemanaRes, rutasHoyRes, busesRes, rutasAyerRes] = await Promise.all([
+      supabase
+        .from('Boletos')
+        .select(`
+          Id,
+          Estado,
+          PrecioFinal,
+          CreatedAt,
+          Ventas!inner(
+            Id,
+            RutaId,
+            Rutas!inner(
+              Id,
+              Fecha,
+              Frecuencias!inner(
+                Id,
+                CiudadOrigen,
+                CiudadDestino,
+                CooperativaId
+              ),
+              Buses!inner(
+                Id,
+                TotalAsientos,
+                CooperativaId
+              )
+            )
+          )
+        `)
+        .gte('CreatedAt', startOfDayIso(inicioSemana))
+        .lte('CreatedAt', endOfDayIso(hoy)),
+
+      supabase
+        .from('Rutas')
+        .select(`
+          Id,
+          Estado,
+          Fecha,
+          BusId,
+          FrecuenciaId,
+          Frecuencias!inner(
+            Id,
+            CiudadOrigen,
+            CiudadDestino,
+            HoraSalida,
+            CooperativaId
+          ),
+          Buses!inner(
+            Id,
+            Numero,
+            Placa,
+            TotalAsientos,
+            CooperativaId
+          )
+        `)
+        .eq('Fecha', todayKey),
+
+      supabase
+        .from('Buses')
+        .select('Id, Estado, CooperativaId, TotalAsientos'),
+
+      supabase
+        .from('Rutas')
+        .select(`
+          Id,
+          Estado,
+          Fecha,
+          BusId,
+          FrecuenciaId,
+          Frecuencias!inner(
+            Id,
+            CooperativaId
+          ),
+          Buses!inner(
+            Id,
+            TotalAsientos,
+            CooperativaId
+          )
+        `)
+        .eq('Fecha', toDateKey(ayer)),
+    ])
+
+    if (boletosSemanaRes.error) {
+      throw new DomainException(`No se pudo cargar boletos de la semana: ${boletosSemanaRes.error.message}`)
+    }
+
+    if (rutasHoyRes.error) {
+      throw new DomainException(`No se pudo cargar rutas activas: ${rutasHoyRes.error.message}`)
+    }
+
+    if (busesRes.error) {
+      throw new DomainException(`No se pudo cargar buses: ${busesRes.error.message}`)
+    }
+
+    const boletosSemana = ((boletosSemanaRes.data || []) as Row[])
+      .filter(row => this.coincideCooperativa(row, coopId))
+
+    const rutasHoy = ((rutasHoyRes.data || []) as Row[])
+      .filter(row => this.coincideCooperativa(row, coopId))
+
+    const rutasAyer = ((rutasAyerRes.data || []) as Row[])
+      .filter(row => this.coincideCooperativa(row, coopId))
+
+    const buses = ((busesRes.data || []) as Row[])
+      .filter(bus => {
+        if (!coopId) return true
+        return Number(getFieldValue(bus, 'CooperativaId')) === Number(coopId)
+      })
+
+    const boletosVendidosSemana = boletosSemana
+      .filter(boleto => ['Emitido', 'Validado'].includes(String(getFieldValue(boleto, 'Estado'))))
+      .length
+
+    const recaudacionSemana = boletosSemana
+      .filter(boleto => ['Emitido', 'Validado'].includes(String(getFieldValue(boleto, 'Estado'))))
+      .reduce((suma, boleto) => suma + Number(getFieldValue(boleto, 'PrecioFinal') ?? 0), 0)
+
+    const rutasActivasHoy = rutasHoy
+      .filter(ruta => ['Programada', 'En Curso', 'PROGRAMADA', 'EN_CURSO'].includes(String(getFieldValue(ruta, 'Estado'))))
+      .length
+
+    const busesActivos = buses
+      .filter(bus => String(getFieldValue(bus, 'Estado') ?? 'Activo').toLowerCase() === 'activo')
+      .length
+
+    const boletosRechazados = boletosSemana
+      .filter(boleto => String(getFieldValue(boleto, 'Estado')) === 'Rechazado')
+      .length
+
+    const asientosDisponiblesHoy = this.calcularAsientosTotales(rutasHoy)
+    const ocupacion = asientosDisponiblesHoy > 0
+      ? (boletosSemana.length / asientosDisponiblesHoy) * 100
+      : 0
+
+    return {
+      tipo: 'cooperativa',
+      rolMensaje: this.mensajePorRol(contexto.rol),
+      kpis: [
+        {
+          label: 'Boletos semana',
+          value: formatNumber(boletosVendidosSemana),
+          hint: 'Vendidos desde el lunes',
+          icon: '🎟️',
+          delta: 0,
+        },
+        {
+          label: 'Recaudación semana',
+          value: formatCurrency(recaudacionSemana),
+          hint: 'Total recaudado',
+          icon: '💰',
+          delta: 0,
+        },
+        {
+          label: 'Rutas activas hoy',
+          value: formatNumber(rutasActivasHoy),
+          hint: `${formatNumber(rutasAyer.length)} rutas ayer`,
+          icon: '🛣️',
+          delta: this.calcularVariacion(rutasActivasHoy, rutasAyer.length),
+        },
+        {
+          label: 'Buses activos',
+          value: formatNumber(busesActivos),
+          hint: 'Unidades disponibles',
+          icon: '🚌',
+          delta: 0,
+        },
+        {
+          label: 'Ocupación',
+          value: formatPct(ocupacion),
+          hint: 'Según rutas de hoy',
+          icon: '📈',
+          delta: 0,
+        },
+        {
+          label: 'Rechazados',
+          value: formatNumber(boletosRechazados),
+          hint: 'No abordados a tiempo',
+          icon: '⚠️',
+          delta: 0,
+        },
+      ],
+      ventasSemana: this.construirSerieSemanal(boletosSemana, inicioSemana),
+      rutasTop: this.construirTopRutas(boletosSemana),
+      gastosMeses: [],
+      proximoViaje: null,
+      accesosRapidos: this.accesosCooperativa(contexto.rol),
+    }
+  }
+
+  private async obtenerResumenChofer(contexto: DashboardContextDto): Promise<DashboardResumenDto> {
+    const todayKey = toDateKey(new Date())
+    const choferId = contexto.usuarioTablaId
+
+    if (!choferId) {
+      return this.dashboardChoferVacio('No se encontró el identificador interno del chofer.')
+    }
+
+    const { data: hojas, error } = await supabase
+      .from('HojasRuta')
+      .select(`
+        Id,
+        FrecuenciaId,
+        BusId,
+        ChoferId,
+        FechaSalida,
+        HoraSalida,
+        Origen,
+        Destino,
+        Estado,
+        Buses(
+          Id,
+          Numero,
+          Placa,
+          TotalAsientos
+        )
+      `)
+      .eq('ChoferId', choferId)
+      .gte('FechaSalida', todayKey)
+      .order('FechaSalida', { ascending: true })
+      .order('HoraSalida', { ascending: true })
+      .limit(1)
+
+    if (error) {
+      return this.dashboardChoferVacio(`No se pudo consultar la hoja de ruta del chofer: ${error.message}`)
+    }
+
+    const hoja = (hojas || [])[0]
+
+    if (!hoja) {
+      return this.dashboardChoferVacio('No tienes viajes asignados para hoy o fechas próximas.')
+    }
+
+    const frecuenciaId = Number(getFieldValue(hoja, 'FrecuenciaId'))
+    const fechaSalida = String(getFieldValue(hoja, 'FechaSalida') ?? todayKey)
+
+    const { data: rutaData } = await supabase
+      .from('Rutas')
+      .select('Id, Fecha, Estado, FrecuenciaId, BusId')
+      .eq('FrecuenciaId', frecuenciaId)
+      .eq('Fecha', fechaSalida)
+      .limit(1)
+
+    const ruta = (rutaData || [])[0]
+    const rutaId = Number(getFieldValue(ruta, 'Id') ?? 0)
+
+    let boletos: Row[] = []
+
+    if (rutaId) {
+      const { data: boletosData } = await supabase
+        .from('Boletos')
+        .select(`
+          Id,
+          Estado,
+          Ventas!inner(
+            Id,
+            RutaId
+          )
+        `)
+        .eq('Ventas.RutaId', rutaId)
+
+      boletos = (boletosData || []) as Row[]
+    }
+
+    const pasajerosEsperados = boletos
+      .filter(boleto => ['Emitido', 'Validado'].includes(String(getFieldValue(boleto, 'Estado'))))
+      .length
+
+    const pasajerosEscaneados = boletos
+      .filter(boleto => String(getFieldValue(boleto, 'Estado')) === 'En Viaje')
+      .length
+
+    const pasajerosPendientes = Math.max(0, pasajerosEsperados - pasajerosEscaneados)
+
+    const bus = getFieldValue(hoja, 'Buses') ?? getFieldValue(hoja, 'buses') ?? {}
+
+    const viaje: DashboardTripDto = {
+      fecha: fechaSalida,
+      hora: String(getFieldValue(hoja, 'HoraSalida') ?? '--:--').slice(0, 5),
+      origen: String(getFieldValue(hoja, 'Origen') ?? 'Origen'),
+      destino: String(getFieldValue(hoja, 'Destino') ?? 'Destino'),
+      bus: String(getFieldValue(bus, 'Numero') ?? getFieldValue(hoja, 'BusId') ?? 'N/D'),
+      placa: String(getFieldValue(bus, 'Placa') ?? 'Sin placa'),
+      estado: String(getFieldValue(hoja, 'Estado') ?? 'PROGRAMADA'),
+      pasajerosEsperados,
+      pasajerosEscaneados,
+      pasajerosPendientes,
+    }
+
+    return {
+      tipo: 'chofer',
+      rolMensaje: 'Consulta tu viaje asignado y controla el abordaje de pasajeros.',
+      kpis: [
+        {
+          label: 'Pasajeros esperados',
+          value: formatNumber(pasajerosEsperados),
+          hint: 'Boletos pagados para este viaje',
+          icon: '👥',
+        },
+        {
+          label: 'Escaneados',
+          value: formatNumber(pasajerosEscaneados),
+          hint: 'Pasajeros ya abordados',
+          icon: '✅',
+        },
+        {
+          label: 'Pendientes',
+          value: formatNumber(pasajerosPendientes),
+          hint: 'Faltan por abordar',
+          icon: '⏳',
+        },
+        {
+          label: 'Estado del viaje',
+          value: viaje.estado || 'Programado',
+          hint: `${viaje.origen} → ${viaje.destino}`,
+          icon: '🚌',
+        },
+      ],
+      ventasSemana: [],
+      rutasTop: [],
+      gastosMeses: [],
+      proximoViaje: viaje,
+      accesosRapidos: this.accesosChofer(),
+    }
+  }
+
+  private dashboardChoferVacio(mensaje: string): DashboardResumenDto {
+    return {
+      tipo: 'chofer',
+      rolMensaje: mensaje,
+      kpis: [
+        { label: 'Pasajeros esperados', value: '0', hint: 'Sin viaje activo', icon: '👥' },
+        { label: 'Escaneados', value: '0', hint: 'Sin validaciones', icon: '✅' },
+        { label: 'Pendientes', value: '0', hint: 'Sin pasajeros pendientes', icon: '⏳' },
+        { label: 'Estado del viaje', value: 'Sin asignación', hint: 'No hay viaje próximo', icon: '🚌' },
+      ],
+      ventasSemana: [],
+      rutasTop: [],
+      gastosMeses: [],
+      proximoViaje: null,
+      accesosRapidos: this.accesosChofer(),
+    }
+  }
+
+  private coincideCooperativa(registro: Row, cooperativaId: number | null) {
     if (!cooperativaId) return true
-    const idFrecuencia = Number(
+
+    const frecuenciaCoop = Number(
       getNested(registro, ['Ventas', 'Rutas', 'Frecuencias', 'CooperativaId']) ??
       getNested(registro, ['Frecuencias', 'CooperativaId']) ??
-      getNested(registro, ['Ventas', 'Rutas', 'Frecuencias', 'cooperativaid']) ??
-      getNested(registro, ['Frecuencias', 'cooperativaid']) ??
       0
     )
-    const idBus = Number(
+
+    const busCoop = Number(
       getNested(registro, ['Ventas', 'Rutas', 'Buses', 'CooperativaId']) ??
       getNested(registro, ['Buses', 'CooperativaId']) ??
-      getNested(registro, ['Ventas', 'Rutas', 'Buses', 'cooperativaid']) ??
-      getNested(registro, ['Buses', 'cooperativaid']) ??
       0
     )
-    return idFrecuencia === cooperativaId || idBus === cooperativaId
+
+    return frecuenciaCoop === Number(cooperativaId) || busCoop === Number(cooperativaId)
   }
 
-  private ticketEsDelDia(ticket: TicketRow, fecha: string) {
-    const createdAt = getFieldValue(ticket, 'CreatedAt') ?? getFieldValue(ticket, 'createdat')
+  private ticketEsDelDia(ticket: Row, fecha: string) {
+    const createdAt = getFieldValue(ticket, 'CreatedAt')
     return createdAt ? toDateKey(new Date(createdAt)) === fecha : false
-  }
-
-  private ticketEsDesde(ticket: TicketRow, fecha: Date) {
-    const createdAt = getFieldValue(ticket, 'CreatedAt') ?? getFieldValue(ticket, 'createdat')
-    return createdAt ? new Date(createdAt) >= fecha : false
   }
 
   private calcularVariacion(actual: number, anterior: number) {
@@ -312,28 +677,28 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
     return Math.round(((actual - anterior) / anterior) * 100)
   }
 
-  private calcularOcupacion(boletos: number, asientos: number) {
-    if (asientos <= 0) return 0
-    return Math.min(100, Math.round((boletos / asientos) * 100))
-  }
-
-  private calcularAsientosTotales(rutas: RouteRow[]) {
+  private calcularAsientosTotales(rutas: Row[]) {
     const buses = new Map<number, number>()
+
     for (const ruta of rutas) {
-      const busId = Number(getFieldValue(ruta, 'BusId') ?? getFieldValue(ruta, 'busid'))
+      const busId = Number(getFieldValue(ruta, 'BusId') ?? 0)
       const totalAsientos = Number(getNested(ruta, ['Buses', 'TotalAsientos']) ?? 0)
+
       if (busId && !buses.has(busId)) {
         buses.set(busId, totalAsientos)
       }
     }
+
     return Array.from(buses.values()).reduce((a, b) => a + b, 0)
   }
 
-  private construirSerieSemanal(tickets: TicketRow[], inicio: Date): DashboardChartPointDto[] {
+  private construirSerieSemanal(boletos: Row[], inicio: Date): DashboardChartPointDto[] {
     const dias = Array.from({ length: 7 }, (_, index) => addDays(inicio, index))
+
     return dias.map(dia => {
       const key = toDateKey(dia)
-      const value = tickets.filter(ticket => this.ticketEsDelDia(ticket, key)).length
+      const value = boletos.filter(boleto => this.ticketEsDelDia(boleto, key)).length
+
       return {
         label: new Intl.DateTimeFormat('es-EC', { weekday: 'short' }).format(dia).replace('.', ''),
         value,
@@ -341,29 +706,37 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
     })
   }
 
-  private construirTopRutas(tickets: TicketRow[], cooperativaId: number | null): DashboardRouteDto[] {
+  private construirTopRutas(boletos: Row[]): DashboardRouteDto[] {
     const mapa = new Map<string, number>()
-    for (const ticket of tickets) {
-      if (!this.coincideCooperativa(ticket, cooperativaId)) continue
-      const ruta = this.formatearRuta(ticket)
+
+    for (const boleto of boletos) {
+      const origen = String(getNested(boleto, ['Ventas', 'Rutas', 'Frecuencias', 'CiudadOrigen']) ?? 'Origen')
+      const destino = String(getNested(boleto, ['Ventas', 'Rutas', 'Frecuencias', 'CiudadDestino']) ?? 'Destino')
+      const ruta = `${origen} → ${destino}`
+
       mapa.set(ruta, (mapa.get(ruta) ?? 0) + 1)
     }
+
     return Array.from(mapa.entries())
-      .map(([ruta, boletos]) => ({ ruta, boletos }))
+      .map(([ruta, cantidad]) => ({ ruta, boletos: cantidad }))
       .sort((a, b) => b.boletos - a.boletos)
       .slice(0, 5)
   }
 
-  private construirGastosMensuales(tickets: TicketRow[], inicio: Date): DashboardChartPointDto[] {
+  private construirGastosMensuales(boletos: Row[], inicio: Date): DashboardChartPointDto[] {
     const meses = Array.from({ length: 6 }, (_, index) => addMonths(inicio, index))
+
     return meses.map(mes => {
       const prefix = `${mes.getUTCFullYear()}-${String(mes.getUTCMonth() + 1).padStart(2, '0')}`
-      const value = tickets
-        .filter(ticket => {
-          const createdAt = getFieldValue(ticket, 'CreatedAt') ?? getFieldValue(ticket, 'createdat')
+
+      const value = boletos
+        .filter(boleto => {
+          const createdAt = getFieldValue(boleto, 'CreatedAt')
           return createdAt ? new Date(createdAt).toISOString().slice(0, 7) === prefix : false
         })
-        .reduce((suma, ticket) => suma + Number(getFieldValue(ticket, 'PrecioFinal') ?? 0), 0)
+        .filter(boleto => ['Emitido', 'Validado'].includes(String(getFieldValue(boleto, 'Estado'))))
+        .reduce((suma, boleto) => suma + Number(getFieldValue(boleto, 'PrecioFinal') ?? 0), 0)
+
       return {
         label: monthLabel(mes),
         value,
@@ -371,102 +744,90 @@ export class SupabaseDashboardRepository implements IDashboardRepository {
     })
   }
 
-  private construirProximoViaje(tickets: TicketRow[], todayKey: string): DashboardTripDto | null {
-    const candidato = tickets.find(ticket => {
-      const fechaViaje = this.extraerFechaViaje(ticket)
-      return fechaViaje ? fechaViaje >= todayKey : false
+  private construirProximoViajeCliente(boletos: Row[], todayKey: string): DashboardTripDto | null {
+    const candidato = boletos.find(boleto => {
+      const estado = String(getFieldValue(boleto, 'Estado'))
+      const fechaViaje = this.extraerFechaViaje(boleto)
+
+      return ['Emitido', 'Validado'].includes(estado) && fechaViaje && fechaViaje >= todayKey
     })
 
     if (!candidato) return null
 
     return {
-      fecha: this.formatearFechaViaje(candidato),
+      fecha: this.extraerFechaViaje(candidato) || 'Sin fecha',
+      hora: String(getNested(candidato, ['Ventas', 'Rutas', 'Frecuencias', 'HoraSalida']) ?? '--:--').slice(0, 5),
       origen: String(getNested(candidato, ['Ventas', 'Rutas', 'Frecuencias', 'CiudadOrigen']) ?? 'Origen'),
       destino: String(getNested(candidato, ['Ventas', 'Rutas', 'Frecuencias', 'CiudadDestino']) ?? 'Destino'),
       cooperativa: String(getNested(candidato, ['Ventas', 'Rutas', 'Frecuencias', 'Cooperativas', 'Nombre']) ?? 'Cooperativa'),
       asiento: String(this.formatearAsiento(candidato)),
+      estado: String(getFieldValue(candidato, 'Estado') ?? 'Emitido'),
     }
   }
 
-  private construirCooperativaFavorita(tickets: TicketRow[]) {
-    const mapa = new Map<string, number>()
-    for (const ticket of tickets) {
-      const nombre = String(getNested(ticket, ['Ventas', 'Rutas', 'Frecuencias', 'Cooperativas', 'Nombre']) ?? 'Sin nombre')
-      mapa.set(nombre, (mapa.get(nombre) ?? 0) + 1)
-    }
-
-    const [nombre = 'Sin viajes registrados', viajes = 0] = Array.from(mapa.entries()).sort((a, b) => b[1] - a[1])[0] ?? []
-    return {
-      nombre,
-      viajes: viajes > 0 ? `${formatNumber(viajes)} viajes` : 'Sin viajes registrados',
-    }
+  private extraerFechaViaje(boleto: Row) {
+    return String(getNested(boleto, ['Ventas', 'Rutas', 'Fecha']) ?? '')
   }
 
-  private formatearRuta(ticket: TicketRow) {
-    const origen = String(getNested(ticket, ['Ventas', 'Rutas', 'Frecuencias', 'CiudadOrigen']) ?? 'Origen')
-    const destino = String(getNested(ticket, ['Ventas', 'Rutas', 'Frecuencias', 'CiudadDestino']) ?? 'Destino')
-    return `${origen} – ${destino}`
-  }
+  private formatearAsiento(boleto: Row) {
+    const numero = getNested(boleto, ['Asientos', 'NumeroAsiento'])
+    const fila = getNested(boleto, ['Asientos', 'Fila'])
+    const columna = getNested(boleto, ['Asientos', 'Columna'])
 
-  private extraerFechaViaje(ticket: TicketRow) {
-    return getNested(ticket, ['Ventas', 'Rutas', 'Fecha'])
-  }
-
-  private formatearFechaViaje(ticket: TicketRow) {
-    const fecha = this.extraerFechaViaje(ticket)
-    if (!fecha) return 'Sin fecha'
-    const parsed = new Date(`${fecha}T00:00:00Z`)
-    return new Intl.DateTimeFormat('es-EC', {
-      weekday: 'short',
-      day: '2-digit',
-      month: 'short',
-    }).format(parsed)
-  }
-
-  private formatearAsiento(ticket: TicketRow) {
-    const numero = getNested(ticket, ['Asientos', 'NumeroAsiento']) ?? getNested(ticket, ['Asientos', 'numeroasiento'])
-    const fila = getNested(ticket, ['Asientos', 'Fila']) ?? getNested(ticket, ['Asientos', 'fila'])
-    const columna = getNested(ticket, ['Asientos', 'Columna']) ?? getNested(ticket, ['Asientos', 'columna'])
     if (numero) return numero
     if (fila && columna) return `${fila}${columna}`
+
     return 'N/D'
   }
 
-  private formatearDiasRestantes(fechaViaje: string) {
-    const fecha = new Date(`${fechaViaje}T00:00:00Z`)
-    const diff = Math.max(0, Math.ceil((fecha.getTime() - new Date().setUTCHours(0, 0, 0, 0)) / 86400000))
-    if (diff === 0) return 'Hoy'
-    if (diff === 1) return 'Mañana'
-    return `${diff} días`
-  }
-
   private mensajePorRol(rol: string) {
-    const normalized = (rol || '').toLowerCase().trim()
-    if (normalized === 'administrador' || normalized === 'admin') {
-      return 'Aquí tienes el pulso de la cooperativa en un vistazo.'
-    }
-    if (normalized === 'oficinista') {
-      return 'Listo para registrar nuevas ventas con rapidez y precisión.'
-    }
-    if (normalized === 'chofer') {
-      return 'Tus rutas asignadas para hoy te esperan.'
-    }
-    return 'Encuentra tu próximo viaje en pocos clics.'
-  }
+    const normalized = normalizeRole(rol)
 
-  private accesosCooperativa(): DashboardQuickActionDto[] {
-    return [
-      { to: '/venta', label: 'Nueva venta', desc: 'Atender pasajero', icon: '💳' },
-      { to: '/admin/hoja-ruta', label: 'Hojas de ruta', desc: 'Programar y revisar', icon: '📋' },
-      { to: '/admin/frecuencias', label: 'Frecuencias', desc: 'Horarios autorizados', icon: '⏰' },
-      { to: '/reportes', label: 'Reportes', desc: 'Auditoría y totales', icon: '📊' },
-    ]
+    if (normalized === 'admin') {
+      return 'Panel general de administración de la cooperativa.'
+    }
+
+    if (normalized === 'oficinista') {
+      return 'Panel operativo para ventas, rutas activas y abordaje.'
+    }
+
+    return 'Resumen general de operación.'
   }
 
   private accesosCliente(): DashboardQuickActionDto[] {
     return [
-      { to: '/buscar', label: 'Buscar rutas', desc: 'Origen y destino', icon: '🔎' },
-      { to: '/mis-boletos', label: 'Mis boletos', desc: 'QR y comprobantes', icon: '🎟️' },
+      { to: '/buscar', label: 'Buscar ruta', desc: 'Comprar nuevo boleto', icon: '🔎' },
+      { to: '/venta', label: 'Comprar boleto', desc: 'Venta en línea', icon: '💳' },
+      { to: '/mis-boletos', label: 'Mis boletos', desc: 'Ver QR y estado', icon: '🎟️' },
+    ]
+  }
+
+  private accesosCooperativa(rol: string): DashboardQuickActionDto[] {
+    const normalized = normalizeRole(rol)
+
+    if (normalized === 'oficinista') {
+      return [
+        { to: '/venta', label: 'Venta', desc: 'Vender boleto', icon: '💳' },
+        { to: '/abordaje', label: 'Abordaje', desc: 'Control de QR', icon: '📷' },
+        { to: '/admin/rutas', label: 'Rutas', desc: 'Rutas activas', icon: '🛣️' },
+        { to: '/reportes', label: 'Reportes', desc: 'Resumen operativo', icon: '📊' },
+      ]
+    }
+
+    return [
+      { to: '/admin/usuarios', label: 'Usuarios', desc: 'Gestionar roles', icon: '👥' },
+      { to: '/admin/buses', label: 'Buses', desc: 'Unidades activas', icon: '🚌' },
+      { to: '/admin/frecuencias', label: 'Frecuencias', desc: 'Horarios base', icon: '⏰' },
+      { to: '/admin/rutas', label: 'Rutas', desc: 'Viajes diarios', icon: '🛣️' },
+      { to: '/venta', label: 'Venta', desc: 'Emitir boleto', icon: '💳' },
+      { to: '/reportes', label: 'Reportes', desc: 'Análisis general', icon: '📊' },
+    ]
+  }
+
+  private accesosChofer(): DashboardQuickActionDto[] {
+    return [
+      { to: '/abordaje', label: 'Escanear QR', desc: 'Validar pasajero', icon: '📷' },
+      { to: '/venta', label: 'Venta', desc: 'Venta en bus', icon: '💳' },
     ]
   }
 }

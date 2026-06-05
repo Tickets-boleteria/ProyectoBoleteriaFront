@@ -13,7 +13,9 @@
         <span
           class="font-black whitespace-nowrap transition-opacity duration-200"
           :class="expanded ? 'opacity-100' : 'opacity-0'"
-        >Boletería</span>
+        >
+          Boletería
+        </span>
       </div>
 
       <!-- Saludo -->
@@ -36,8 +38,7 @@
 
       <!-- Navegación -->
       <nav class="flex-1 py-3 overflow-y-auto overflow-x-hidden">
-        <!-- Skeleton mientras la sesión se rehidrata: evita el parpadeo
-             en el que solo aparecen las rutas públicas al recargar -->
+        <!-- Skeleton mientras la sesión se rehidrata -->
         <template v-if="!ready">
           <div
             v-for="n in 5"
@@ -67,7 +68,9 @@
               <span
                 class="text-sm font-bold whitespace-nowrap transition-opacity duration-200"
                 :class="expanded ? 'opacity-100' : 'opacity-0'"
-              >{{ item.label }}</span>
+              >
+                {{ item.label }}
+              </span>
             </a>
           </router-link>
         </template>
@@ -84,7 +87,9 @@
           <span
             class="text-sm whitespace-nowrap transition-opacity duration-200"
             :class="expanded ? 'opacity-100' : 'opacity-0'"
-          >Cerrar sesión</span>
+          >
+            Cerrar sesión
+          </span>
         </button>
       </div>
     </aside>
@@ -118,9 +123,6 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 
-// storeToRefs mantiene la reactividad de user/ready/role.
-// Si los desestructuras sin esto, pierden reactividad y NO se actualizan
-// cuando la sesión se rehidrata tras recargar.
 const { user, ready, role } = storeToRefs(authStore)
 
 const expanded = ref(false)
@@ -129,21 +131,93 @@ interface NavItem {
   to: string
   label: string
   icon: string
-  roles?: string[] // si no se define, visible para cualquier rol autenticado
+  roles?: string[]
 }
 
+const ADMIN = ['admin', 'administrador']
+const OFICINISTA = ['oficinista']
+const CHOFER = ['chofer']
+const CLIENTE = ['cliente', 'usuario final']
+
 const items: NavItem[] = [
-  { to: '/',                  label: 'Dashboard',     icon: '🏠' },
-  { to: '/buscar',            label: 'Buscar rutas',  icon: '🔎', roles: ['Cliente', 'Administrador', 'Admin', 'Oficinista'] },
-  { to: '/mis-boletos',       label: 'Mis boletos',   icon: '🎟️', roles: ['Cliente', 'Administrador', 'Admin'] },
-  { to: '/venta',             label: 'Venta',         icon: '💳', roles: ['Oficinista', 'Administrador', 'Admin'] },
-  { to: '/abordaje',          label: 'Abordaje',      icon: '📷', roles: ['Chofer', 'Administrador', 'Admin'] },
-  { to: '/admin/buses',       label: 'Buses',         icon: '🚌', roles: ['Administrador', 'Admin'] },
-  { to: '/admin/frecuencias', label: 'Frecuencias',   icon: '⏰', roles: ['Administrador', 'Admin'] },
-  { to: '/admin/rutas',       label: 'Rutas',         icon: '🛣️', roles: ['Administrador', 'Admin'] },
-  { to: '/admin/hoja-ruta',   label: 'Hoja de ruta',  icon: '📋', roles: ['Administrador', 'Admin', 'Oficinista'] },
-  { to: '/admin/usuarios',    label: 'Usuarios',      icon: '👥', roles: ['Administrador', 'Admin'] },
-  { to: '/reportes',          label: 'Reportes',      icon: '📊', roles: ['Administrador', 'Admin'] },
+  // Todos los roles autenticados
+  {
+    to: '/',
+    label: 'Dashboard',
+    icon: '🏠',
+  },
+
+  // Usuario final / Cliente
+  {
+    to: '/mis-boletos',
+    label: 'Mis boletos',
+    icon: '🎟️',
+    roles: CLIENTE,
+  },
+  {
+    to: '/buscar',
+    label: 'Buscar ruta',
+    icon: '🔎',
+    roles: CLIENTE,
+  },
+
+  // Venta: cliente, oficinista, chofer y administrador
+  {
+    to: '/oficinista/venta-boletos',
+    label: 'Venta presencial',
+    icon: '💳',
+    roles: [...OFICINISTA, ...ADMIN],
+  },
+  {
+    to: '/oficinista/aprobar-pagos',
+    label: 'Aprobar pagos',
+    icon: '✅',
+    roles: [...OFICINISTA, ...ADMIN],
+  },
+
+  // Abordaje: oficinista, chofer y administrador
+  {
+    to: '/abordaje',
+    label: 'Abordaje',
+    icon: '📷',
+    roles: [...OFICINISTA, ...CHOFER, ...ADMIN],
+  },
+
+  // Rutas: oficinista y administrador
+  {
+    to: '/admin/rutas',
+    label: 'Rutas',
+    icon: '🛣️',
+    roles: [...OFICINISTA, ...ADMIN],
+  },
+
+  // Reportes: oficinista y administrador
+  {
+    to: '/reportes',
+    label: 'Reportes',
+    icon: '📊',
+    roles: [...OFICINISTA, ...ADMIN],
+  },
+
+  // Opciones exclusivas del administrador
+  {
+    to: '/admin/usuarios',
+    label: 'Usuarios',
+    icon: '👥',
+    roles: ADMIN,
+  },
+  {
+    to: '/admin/buses',
+    label: 'Buses',
+    icon: '🚌',
+    roles: ADMIN,
+  },
+  {
+    to: '/admin/frecuencias',
+    label: 'Frecuencias',
+    icon: '⏰',
+    roles: ADMIN,
+  },
 ]
 
 const displayName = computed(() => {
@@ -151,20 +225,44 @@ const displayName = computed(() => {
   return u?.nombres || u?.user_metadata?.nombres || u?.email || 'Invitado'
 })
 
+const normalizeRole = (value: string | null | undefined) => {
+  const normalized = (value || '').toLowerCase().trim()
+
+  if (normalized === 'usuario final') return 'cliente'
+  if (normalized === 'administrador') return 'admin'
+
+  return normalized
+}
+
 const visibleItems = computed(() => {
-  if (!role.value) return items.filter(i => !i.roles) // solo públicas si no hay rol
-  return items.filter(i => !i.roles || i.roles.includes(role.value!))
+  const currentRole = normalizeRole(role.value)
+
+  if (!currentRole) {
+    return items.filter(item => !item.roles)
+  }
+
+  return items.filter(item => {
+    if (!item.roles) return true
+
+    return item.roles.some(itemRole => {
+      return normalizeRole(itemRole) === currentRole
+    })
+  })
 })
 
 const currentTitle = computed(() => {
-  const match = items.find(i => i.to === route.path)
+  const match = items.find(item => item.to === route.path)
   if (match) return match.label
+
   return 'Boletería'
 })
 
 const todayLabel = computed(() =>
   new Date().toLocaleDateString('es-EC', {
-    weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
   })
 )
 
@@ -174,6 +272,7 @@ function go(to: string) {
 
 async function logout() {
   if (!confirm('¿Estás seguro de cerrar sesión?')) return
+
   await authStore.logout()
   router.push('/login')
 }

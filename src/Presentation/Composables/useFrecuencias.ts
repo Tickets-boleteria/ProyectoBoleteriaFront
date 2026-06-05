@@ -2,6 +2,8 @@ import { ref, onMounted } from 'vue';
 import { SupabaseFrecuenciaRepository } from '../../Infrastructure/Repositories/SupabaseFrecuenciaRepository';
 import { useAuthStore } from '../Store/authStore';
 
+export const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
 export function useFrecuencias() {
   const frecuencias = ref<any[]>([]);
   const loading = ref(false);
@@ -16,7 +18,8 @@ export function useFrecuencias() {
     codigoAnt: '',
     resolucionAnt: '',
     horaSalida: '',
-    esDirecto: true
+    esDirecto: true,
+    diasOperacion: [...DIAS_SEMANA]
   });
 
   const repo = new SupabaseFrecuenciaRepository();
@@ -41,12 +44,16 @@ export function useFrecuencias() {
       if (!cooperativaId) {
         throw new Error('No se encontró la cooperativa del usuario autenticado.');
       }
+
+      if (!nuevaFrecuencia.value.diasOperacion || nuevaFrecuencia.value.diasOperacion.length === 0) {
+        throw new Error('Debe seleccionar al menos un día de operación.');
+      }
       
       await repo.crear({ ...nuevaFrecuencia.value, cooperativaId });
       success.value = 'Trayecto (Frecuencia) registrado exitosamente.';
       
       // Limpiar formulario y recargar datos
-      nuevaFrecuencia.value = { ciudadOrigen: '', ciudadDestino: '', codigoAnt: '', resolucionAnt: '', horaSalida: '', esDirecto: true };
+      nuevaFrecuencia.value = { ciudadOrigen: '', ciudadDestino: '', codigoAnt: '', resolucionAnt: '', horaSalida: '', esDirecto: true, diasOperacion: [...DIAS_SEMANA] };
       await cargarDatos();
     } catch (err: any) {
       error.value = err.message || 'Error al registrar la frecuencia.';
