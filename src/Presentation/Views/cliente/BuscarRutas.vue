@@ -2,6 +2,9 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { supabase } from '../../../Infrastructure/Api/supabaseClient'
 import { useAuthStore } from '../../Store/authStore'
+import { SupabaseVentasRepository } from '../../../Infrastructure/Repositories/SupabaseVentasRepository'
+import { SupabaseBoletosRepository } from '../../../Infrastructure/Repositories/SupabaseBoletosRepository'
+import { ConfirmarCompra } from '../../../Application/UseCases/ConfirmarCompra'
 
 interface RutaDisponible {
   id: number
@@ -596,12 +599,20 @@ function toggleAsiento(a: { numero: string; ocupado: boolean }) {
 
 // Paso 3: pago
 const captura = ref<string | null>(null)
+const capturaArchivo = ref<File | null>(null)
 const referenciaPago = ref('')
+const cuentaOrigen = ref('')
+const nombresPasajero = ref('')
+const apellidosPasajero = ref('')
+const cedulaPasajero = ref('')
+const fechaNacimientoPasajero = ref('')
 const mostrarPago = ref(false)
+const BUCKET_COMPROBANTES = 'comprobantes'
 
 function onCapturaUpload(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
+  capturaArchivo.value = file
   const reader = new FileReader()
   reader.onload = ev => { captura.value = ev.target?.result as string }
   reader.readAsDataURL(file)
@@ -615,6 +626,7 @@ const compraConfirmada = ref<null | {
   total: number
   captura: string | null
   referencia: string
+  cuenta?: string
 }>(null)
 
 const authStore = useAuthStore()
@@ -629,34 +641,27 @@ async function confirmarCompra() {
     error.value = 'El tipo de asiento seleccionado no tiene un precio configurado.'
     return
   }
-  if (!captura.value) {
+  if (!capturaArchivo.value) {
     alert('Por favor adjunta la captura del pago para continuar.')
     return
   }
 
+  const nombres = nombresPasajero.value.trim() || String(authStore.user?.nombres ?? '').trim()
+  const apellidos = apellidosPasajero.value.trim() || String(authStore.user?.apellidos ?? '').trim()
+  const cedula = cedulaPasajero.value.trim() || String(authStore.user?.cedula ?? '').trim()
+  const fechaNacimiento = fechaNacimientoPasajero.value.trim()
+
+  if (!nombres || !apellidos || !cedula || !fechaNacimiento) {
+    error.value = 'Completa nombres, apellidos, cédula y fecha de nacimiento del pasajero.'
+    return
+  }
+
   try {
-    // 1) Crear registro de Venta (estado PENDIENTE)
-    const ventaPayload: any = {
-      RutaId: rutaSeleccionada.value.id,
-      FechaVenta: new Date().toISOString(),
-      Estado: 'PENDIENTE',
-    }
-
-    const { data: ventaData, error: ventaError } = await supabase
-      .from('Ventas')
-      .insert([ventaPayload])
-      .select()
-      .single()
-
-    if (ventaError) throw new Error(ventaError.message)
-    const ventaId = Number(getFieldValue(ventaData, 'Id') ?? getFieldValue(ventaData, 'id'))
-    if (!ventaId) throw new Error('No se pudo crear la venta.')
-
-    // 2) Obtener Asientos del bus para mapear número -> Id
+    // Resolver Ids de asientos desde números mostrados en UI
     const { data: asientosRows, error: asientosError } = await supabase
       .from('Asientos')
       .select('Id, NumeroAsiento, BusId')
-      .eq('BusId', rutaSeleccionada.value.busId)
+      .eq('BusId', rutaSeleccionada.value!.busId)
 
     if (asientosError) throw new Error(asientosError.message)
 
@@ -669,48 +674,59 @@ async function confirmarCompra() {
       if (num && id) asientoMap.set(String(Number(num)), id)
     }
 
-    // 3) Preparar inserts para Boletos
-    const cedulaPasajero = String(authStore.user?.cedula ?? '')
-    const precio = precioSeleccionado.value
-    const boletosInsert: any[] = []
+    const asientoIds: number[] = []
     for (const asientoNumero of asientosSeleccionados.value) {
       const key = asientoNumero.toString().padStart(2, '0')
       const asientoId = asientoMap.get(key) ?? asientoMap.get(String(Number(asientoNumero)))
-      if (!asientoId) throw new Error(`No se encontró el asiento ${asientoNumero} en la configuración del bus.`)
-      boletosInsert.push({
-        VentaId: ventaId,
-        AsientoId: asientoId,
-        PrecioFinal: precio,
-        CedulaPasajero: cedulaPasajero,
-        Estado: 'PENDIENTE',
-      })
+      if (!asientoId) throw new Error(`No se encontró el asiento ${asientoNumero}`)
+      asientoIds.push(asientoId)
     }
 
-    if (boletosInsert.length === 0) throw new Error('No hay boletos para insertar.')
+    // Instanciar repositorios e invocar caso de uso
+    const ventaRepo = new SupabaseVentasRepository()
+    const boletosRepo = new SupabaseBoletosRepository()
+    // opcional: usar repositorio de auditoría si existe
+    let auditRepo: any = undefined
+    try {
+      const { SupabaseAuditoriaRepository } = await import('../../../Infrastructure/Repositories/SupabaseAuditoriaRepository')
+      auditRepo = new SupabaseAuditoriaRepository()
+    } catch (e) {
+      // no existe o falla, no es crítico
+    }
 
-    const { data: boletosData, error: boletosError } = await supabase
-      .from('Boletos')
-      .insert(boletosInsert)
-      .select()
+    const confirmar = new ConfirmarCompra(ventaRepo, boletosRepo, auditRepo)
+    const result = await confirmar.ejecutar({
+      ruta: rutaSeleccionada.value!,
+      asientos: asientoIds,
+      precioUnitario: precioSeleccionado.value,
+      capturaArchivo: capturaArchivo.value as File,
+      nombres,
+      apellidos,
+      cedula,
+      fechaNacimiento,
+      usuarioId: authStore.user?.id ?? null,
+    })
 
-    if (boletosError) throw new Error(boletosError.message)
-
-    // 4) Actualizar UI y estado local
     compraConfirmada.value = {
       codigo: null,
-      ruta: rutaSeleccionada.value,
+      ruta: rutaSeleccionada.value!,
       asientos: [...asientosSeleccionados.value],
-      total: precio * asientosSeleccionados.value.length,
-      captura: captura.value,
+      total: precioSeleccionado.value * asientosSeleccionados.value.length,
+      captura: result.comprobanteUrl,
       referencia: referenciaPago.value,
+      cuenta: cuentaOrigen.value,
     }
 
-    // Limpiar formulario de pago
     mostrarPago.value = false
     asientosSeleccionados.value = []
     asientosOcupados.value = []
     captura.value = null
+    capturaArchivo.value = null
     referenciaPago.value = ''
+    cuentaOrigen.value = ''
+    nombresPasajero.value = ''
+    apellidosPasajero.value = ''
+    fechaNacimientoPasajero.value = ''
 
   } catch (err: any) {
     error.value = err.message || 'No fue posible registrar la compra.'
@@ -728,7 +744,11 @@ function nuevaBusqueda() {
   asientosDelBus.value = []
   tipoServicioSeleccionado.value = ''
   captura.value = null
+  capturaArchivo.value = null
   referenciaPago.value = ''
+  nombresPasajero.value = ''
+  apellidosPasajero.value = ''
+  fechaNacimientoPasajero.value = ''
   mostrarPago.value = false
 }
 
@@ -991,55 +1011,59 @@ watch(() => filtros.fecha, () => {
                 </section>
               </div>
             </div>
-          </div>
-
-          <aside class="space-y-4">
-            <div class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
-              <h3 class="font-black text-slate-900 mb-3">Resumen</h3>
-              <p class="text-sm text-slate-600 mb-1">Tipo: <strong>{{ etiquetaTipoServicio(tipoServicioSeleccionado) }}</strong></p>
-              <p class="text-sm text-slate-600 mb-1">Precio unitario: <strong>${{ precioSeleccionado.toFixed(2) }}</strong></p>
-              <p class="text-sm text-slate-600 mb-1">Asientos libres para este tipo: <strong>{{ asientosLibresDelTipoSeleccionado }}</strong></p>
-              <p class="text-sm text-slate-600 mb-1">Asientos: <strong>{{ asientosSeleccionados.join(', ') || '—' }}</strong></p>
-              <p class="text-sm text-slate-600 mb-3">Cantidad: <strong>{{ asientosSeleccionados.length }}</strong></p>
-              <div class="border-t border-slate-200 pt-3">
-                <div class="flex justify-between text-sm"><span>Subtotal</span><span class="font-bold">${{ (precioSeleccionado * asientosSeleccionados.length).toFixed(2) }}</span></div>
-                <div class="flex justify-between text-lg mt-1"><span class="font-bold">Total</span><span class="font-black text-blue-700">${{ (precioSeleccionado * asientosSeleccionados.length).toFixed(2) }}</span></div>
-              </div>
-              <button :disabled="asientosSeleccionados.length === 0 || !tipoServicioSeleccionado || precioSeleccionado <= 0" @click="mostrarPago = true"
-                class="mt-4 w-full rounded-2xl bg-blue-600 py-3 font-black text-white shadow-xl shadow-blue-100 hover:bg-blue-700 disabled:opacity-50">
-                Ir a pagar
+            <!-- Botón de confirmar asientos colocado debajo del mapa para priorizar selección -->
+            <div class="mt-4 text-center">
+              <button :disabled="asientosSeleccionados.length === 0 || !tipoServicioSeleccionado" @click="mostrarPago = true"
+                class="w-full rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-xl hover:bg-blue-700 disabled:opacity-50">
+                Confirmar asientos
               </button>
             </div>
+          </div>
 
-            <div class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
-              <h4 class="font-bold text-slate-900 mb-2 text-sm">Datos para transferencia</h4>
-              <p class="text-xs text-slate-600">Adjunta únicamente el comprobante oficial de la venta.</p>
-            </div>
-          </aside>
+          <!-- Se removió el panel lateral para dejar SOLO el mapa de asientos como pidió el usuario -->
+          <!-- (no se muestra resumen lateral) -->
         </div>
 
-        <!-- ===== Pago ===== -->
-        <section v-if="mostrarPago" class="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur">
-          <h3 class="text-lg font-black text-slate-900 mb-4">Adjunta tu comprobante de pago</h3>
-          <div class="grid gap-4 sm:grid-cols-2">
-            <div class="rounded-2xl bg-slate-50 p-3">
-              <label class="text-xs font-bold text-slate-700">Referencia / número de transacción</label>
-              <input v-model="referenciaPago" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
-            </div>
-            <div class="rounded-2xl bg-slate-50 p-3">
-              <label class="text-xs font-bold text-slate-700">Captura del pago (imagen)</label>
-              <input type="file" accept="image/*" @change="onCapturaUpload" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 text-sm"/>
+        <!-- ===== Modal de Pago (montado como overlay) ===== -->
+        <div v-if="mostrarPago" class="fixed inset-0 z-50 flex items-center justify-center">
+          <div class="absolute inset-0 bg-black/40" @click="mostrarPago = false"></div>
+          <div class="relative w-full max-w-2xl mx-4">
+            <div class="rounded-2xl bg-white p-6 shadow-2xl border border-slate-200">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-black text-slate-900">Formulario de transferencia</h3>
+                <button @click="mostrarPago = false" class="text-slate-500 hover:text-slate-700">✕</button>
+              </div>
+              <div class="grid gap-4 sm:grid-cols-2">
+                <div class="rounded-2xl bg-slate-50 p-3">
+                  <label class="text-xs font-bold text-slate-700">Referencia / número de transacción</label>
+                  <input v-model="referenciaPago" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
+                  <label class="text-xs font-bold text-slate-700 mt-3 block">Fecha de nacimiento</label>
+                  <input v-model="fechaNacimientoPasajero" type="date" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
+                </div>
+                <div class="rounded-2xl bg-slate-50 p-3">
+                  <label class="text-xs font-bold text-slate-700">Número de cuenta (origen)</label>
+                  <input v-model="cuentaOrigen" placeholder="Ej. 1234567890" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 text-sm"/>
+                  <label class="text-xs font-bold text-slate-700 mt-3 block">Nombres del pasajero</label>
+                  <input v-model="nombresPasajero" :placeholder="String(authStore.user?.nombres ?? '')" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 text-sm"/>
+                  <label class="text-xs font-bold text-slate-700 mt-3 block">Apellidos del pasajero</label>
+                  <input v-model="apellidosPasajero" :placeholder="String(authStore.user?.apellidos ?? '')" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 text-sm"/>
+                  <label class="text-xs font-bold text-slate-700 mt-3 block">Cédula del pasajero</label>
+                  <input v-model="cedulaPasajero" :placeholder="String(authStore.user?.cedula ?? '')" class="w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 mt-1 text-sm font-bold text-slate-700"/>
+                  <label class="text-xs font-bold text-slate-700 mt-3 block">Captura del pago (imagen)</label>
+                  <input type="file" accept="image/*" @change="onCapturaUpload" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 text-sm"/>
+                </div>
+              </div>
+              <div v-if="captura" class="mt-4">
+                <p class="text-xs font-bold text-slate-700 mb-2">Vista previa:</p>
+                <img :src="captura" alt="Captura pago" class="rounded-xl border border-slate-200 max-h-64"/>
+              </div>
+              <div class="mt-5 flex gap-3 justify-end">
+                <button @click="mostrarPago = false" class="rounded-2xl bg-slate-100 px-4 py-2 font-bold text-slate-700 hover:bg-slate-200">Cancelar</button>
+                <button @click="confirmarCompra" class="rounded-2xl bg-emerald-600 px-6 py-2 font-black text-white hover:bg-emerald-700">Confirmar compra</button>
+              </div>
             </div>
           </div>
-          <div v-if="captura" class="mt-4">
-            <p class="text-xs font-bold text-slate-700 mb-2">Vista previa:</p>
-            <img :src="captura" alt="Captura pago" class="rounded-xl border border-slate-200 max-h-64"/>
-          </div>
-          <button @click="confirmarCompra"
-            class="mt-5 rounded-2xl bg-emerald-600 px-6 py-3 font-black text-white shadow-xl shadow-emerald-100 hover:bg-emerald-700">
-            Confirmar compra
-          </button>
-        </section>
+        </div>
       </section>
     </template>
   </div>
