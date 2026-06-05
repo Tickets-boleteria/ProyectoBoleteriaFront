@@ -31,11 +31,20 @@ const getFieldValue = (obj: any, fieldName: string) => {
 
 const isValidText = (value: any) => typeof value === 'string' && value.trim().length > 0
 
-const mapEstado = (estado: any): Boleto['estado'] => {
-  const e = String(estado ?? '').toUpperCase()
-  if (e.includes('CONF')) return 'CONFIRMADO'
-  if (e.includes('USAD')) return 'USADO'
-  if (e.includes('CANC')) return 'CANCELADO'
+const mapEstado = (estadoBoleto: any, estadoVenta?: any): Boleto['estado'] => {
+  const boleto = String(estadoBoleto ?? '').toLowerCase().trim()
+  const venta = String(estadoVenta ?? '').toLowerCase().trim()
+
+  if (venta === 'pendiente') return 'PENDIENTE'
+  if (venta === 'cancelada') return 'CANCELADO'
+
+  if (boleto === 'validado') return 'USADO'
+  if (boleto === 'cancelado') return 'CANCELADO'
+
+  if (venta === 'aprobadapago' || venta === 'confirmada') {
+    return 'CONFIRMADO'
+  }
+
   return 'PENDIENTE'
 }
 
@@ -54,37 +63,45 @@ const cargarBoletos = async () => {
     const { data, error: queryError } = await supabase
       .from('Boletos')
       .select(`
+    Id,
+    VentaId,
+    AsientoId,
+    NombresPasajero,
+    ApellidosPasajero,
+    CedulaPasajero,
+    FechaNacimiento,
+    EsMenor,
+    EsDiscapacitado,
+    EsTerceraEdad,
+    DescuentoAplicado,
+    PrecioFinal,
+    CodigoQr,
+    CodigoBarras,
+    Estado,
+    CreatedAt,
+    FechaValidacion,
+    Asientos(
+      NumeroAsiento
+    ),
+    Ventas(
+      Id,
+      Estado,
+      CiudadOrigenVenta,
+      CiudadDestinoVenta,
+      FechaVenta,
+      Total,
+      ComprobanteUrl,
+      Rutas(
         Id,
-        CodigoQr,
-        CodigoBarras,
-        Estado,
-        PrecioFinal,
-        CreatedAt,
-        Asientos!inner(
-          Id,
-          NumeroAsiento,
-          Buses!inner(
-            Placa
-          )
-        ),
-        Ventas!inner(
-          Id,
-          UsuarioVendedorId,
-          FechaVenta,
-          Estado,
-          Rutas!inner(
-            Id,
-            Fecha,
-            Frecuencias!inner(
-              Id,
-              CiudadOrigen,
-              CiudadDestino,
-              HoraSalida,
-              Cooperativas!inner(Id, Nombre)
-            )
-          )
+        Fecha,
+        Frecuencias(
+          CiudadOrigen,
+          CiudadDestino,
+          HoraSalida
         )
-      `)
+      )
+    )
+  `)
       .eq('CedulaPasajero', cedulaUsuario)
       .order('CreatedAt', { ascending: false })
 

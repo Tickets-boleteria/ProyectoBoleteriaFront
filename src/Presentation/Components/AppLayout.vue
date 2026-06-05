@@ -163,10 +163,16 @@ const items: NavItem[] = [
 
   // Venta: cliente, oficinista, chofer y administrador
   {
-    to: '/venta',
-    label: 'Venta',
+    to: '/oficinista/venta-boletos',
+    label: 'Venta presencial',
     icon: '💳',
-    roles: [ ...OFICINISTA, ...CHOFER, ...ADMIN],
+    roles: [...OFICINISTA, ...ADMIN],
+  },
+  {
+    to: '/oficinista/aprobar-pagos',
+    label: 'Aprobar pagos',
+    icon: '✅',
+    roles: [...OFICINISTA, ...ADMIN],
   },
 
   // Abordaje: oficinista, chofer y administrador
