@@ -94,6 +94,74 @@ export function getEstadoBusLabel(estado: EstadoBus): string {
   return labels[estado]
 }
 
+export function normalizarEstadoRuta(estado: string): EstadoRuta {
+  const limpio = String(estado || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/_/g, '')
+
+  const equivalencias: Record<string, EstadoRuta> = {
+    programada: 'Programada',
+    habilitada: 'Habilitada',
+
+    encurso: 'EnCurso',
+    curso: 'EnCurso',
+    enproceso: 'EnCurso',
+    iniciado: 'EnCurso',
+    iniciada: 'EnCurso',
+
+    completada: 'Completada',
+    finalizada: 'Completada',
+    finalizado: 'Completada',
+
+    cancelada: 'Cancelada',
+    cancelado: 'Cancelada',
+  }
+
+  return equivalencias[limpio] || 'Programada'
+}
+
+export function normalizarEstadoBus(estado: string): EstadoBus {
+  const limpio = String(estado || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/_/g, '')
+
+  const equivalencias: Record<string, EstadoBus> = {
+    activo: 'Activo',
+    enmantenimiento: 'EnMantenimiento',
+    mantenimiento: 'EnMantenimiento',
+    inactivo: 'Inactivo',
+    viajando: 'Viajando',
+    enviaje: 'Viajando',
+  }
+
+  return equivalencias[limpio] || 'Activo'
+}
+
+export function normalizarEstadoBoleto(estado: string): EstadoBoleto {
+  const limpio = String(estado || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/_/g, '')
+
+  const equivalencias: Record<string, EstadoBoleto> = {
+    emitido: 'Emitido',
+    pendiente: 'Emitido',
+    pagado: 'Emitido',
+    enviaje: 'Validado',
+    finalizado: 'Validado',
+    rechazado: 'Cancelado',
+    cancelado: 'Cancelado',
+    validado: 'Validado'
+  }
+
+  return equivalencias[limpio] || 'Emitido'
+}
+
 export function puedeCambiarEstadoRuta(
   estadoActual: EstadoRuta,
   nuevoEstado: EstadoRuta
@@ -121,37 +189,4 @@ export function obtenerSiguienteEstadoRuta(
   }
 
   return siguiente[estadoActual]
-}
-
-export function normalizarEstadoRuta(estado: string): EstadoRuta {
-  const limpio = estado.trim().toLowerCase().replace(/\s+/g, '')
-
-  if (limpio === 'programada') return 'Programada'
-  if (limpio === 'programado') return 'Programada'
-  if (limpio === 'habilitada') return 'Habilitada'
-  if (limpio === 'habilitado') return 'Habilitada'
-  if (limpio === 'encurso') return 'EnCurso'
-  if (limpio === 'enproceso') return 'EnCurso'
-  if (limpio === 'enviaje') return 'EnCurso'
-  if (limpio === 'completada') return 'Completada'
-  if (limpio === 'completado') return 'Completada'
-  if (limpio === 'finalizada') return 'Completada'
-  if (limpio === 'finalizado') return 'Completada'
-  if (limpio === 'cancelada') return 'Cancelada'
-  if (limpio === 'cancelado') return 'Cancelada'
-
-  return 'Programada'
-}
-
-export function normalizarEstadoBus(estado: string): EstadoBus {
-  const limpio = estado.trim().toLowerCase().replace(/\s+/g, '')
-
-  if (limpio === 'activo') return 'Activo'
-  if (limpio === 'enmantenimiento') return 'EnMantenimiento'
-  if (limpio === 'mantenimiento') return 'EnMantenimiento'
-  if (limpio === 'inactivo') return 'Inactivo'
-  if (limpio === 'viajando') return 'Viajando'
-  if (limpio === 'enruta') return 'Viajando'
-
-  return 'Activo'
 }

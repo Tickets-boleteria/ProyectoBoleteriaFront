@@ -379,7 +379,7 @@ export function useRutas() {
       throw new Error('El bus seleccionado no está activo.')
     }
 
-    const estadosActivos = ['Programada', 'Habilitada', 'EnCurso', 'En curso', 'En proceso']
+   const estadosActivos = ['Programada', 'Habilitada', 'EnCurso']
 
     if (!frecuenciaId) {
       // Comportamiento legado si no hay frecuencia
@@ -475,7 +475,7 @@ export function useRutas() {
     .select('Id')
     .eq('ChoferId', choferCedula)
     .eq('Fecha', fecha)
-    .in('Estado', ['Programada', 'EnCurso'])
+    .in('Estado', ['Programada', 'Habilitada', 'EnCurso'])
     .limit(1)
 
   if (err) throw err

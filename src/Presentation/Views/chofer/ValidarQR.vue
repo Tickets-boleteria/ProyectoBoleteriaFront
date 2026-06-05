@@ -1,19 +1,22 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
 import { useChoferRuta } from '../../Composables/useChoferRuta'
+import { extraerCodigoBoleto } from '../../../utils/qrcode'
 
-const videoRef = ref<HTMLVideoElement | null>(null)
+const QR_READER_ID = 'chofer-qr-reader'
 
-const escaneando = ref(false)
 const codigoManual = ref('')
-const resultado = ref('')
+const mensajeCamara = ref('')
+const camaraActiva = ref(false)
+const procesandoEscaneo = ref(false)
+const ultimoResultado = ref<any | null>(null)
 
 const mostrarModalObservacion = ref(false)
 const mostrarModalEmergencia = ref(false)
 const observacion = ref('')
 
-let stream: MediaStream | null = null
-let detectorLoopId: number | null = null
+let html5QrCode: Html5Qrcode | null = null
 let ultimoCodigo = ''
 let ultimoScanAt = 0
 
@@ -24,8 +27,11 @@ const {
   loading,
   error,
   success,
+  resultado,
   rutaHabilitada,
   rutaEnCurso,
+  rutaCompletada,
+  rutaCancelada,
   minutosDesdeSalida,
   cargarRutaChofer,
   iniciarViaje,
@@ -35,49 +41,52 @@ const {
   validarQrBoleto,
 } = useChoferRuta()
 
+const puedeValidar = computed(() => rutaEnCurso.value && !loading.value)
+
 onMounted(async () => {
   await cargarRutaChofer()
 })
 
-onUnmounted(() => {
-  detenerCamara()
+onBeforeUnmount(() => {
+  void detenerCamara()
 })
 
 async function onIniciarViaje() {
   const res = await iniciarViaje()
-  resultado.value = res.mensaje
+  ultimoResultado.value = res
+
+  if (!res.ok) {
+    await detenerCamara()
+  }
 }
 
 async function onIntentarFinalizar() {
   const res = await intentarFinalizarViaje()
-
-  resultado.value = res.mensaje
+  ultimoResultado.value = res
 
   if (res.requiereObservacion) {
     mostrarModalObservacion.value = true
   }
 
   if (res.ok) {
-    detenerCamara()
+    await detenerCamara()
   }
 }
 
 async function onConfirmarFinalizacionConObservacion() {
   const res = await finalizarViaje(observacion.value)
-
-  resultado.value = res.mensaje
+  ultimoResultado.value = res
 
   if (res.ok) {
     mostrarModalObservacion.value = false
     observacion.value = ''
-    detenerCamara()
+    await detenerCamara()
   }
 }
 
 async function onMarcarEmergencia() {
   const res = await marcarEmergencia(observacion.value)
-
-  resultado.value = res.mensaje
+  ultimoResultado.value = res
 
   if (res.ok) {
     mostrarModalEmergencia.value = false
@@ -86,110 +95,219 @@ async function onMarcarEmergencia() {
 }
 
 async function iniciarCamara() {
-  resultado.value = ''
+  mensajeCamara.value = ''
 
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' },
-    })
-
-    if (videoRef.value) {
-      videoRef.value.srcObject = stream
-      await videoRef.value.play()
-    }
-
-    escaneando.value = true
-    iniciarLoopDeteccion()
-  } catch (err: any) {
-    resultado.value = 'No se pudo acceder a la cámara: ' + err.message
-  }
-}
-
-function detenerCamara() {
-  escaneando.value = false
-
-  if (detectorLoopId !== null) {
-    cancelAnimationFrame(detectorLoopId)
-    detectorLoopId = null
-  }
-
-  if (stream) {
-    stream.getTracks().forEach(track => track.stop())
-    stream = null
-  }
-}
-
-async function iniciarLoopDeteccion() {
-  const BarcodeDetectorApi = (window as any).BarcodeDetector
-
-  if (!BarcodeDetectorApi) {
-    resultado.value = 'Tu navegador no soporta escaneo automático. Ingresa el código manualmente.'
+  if (!rutaEnCurso.value) {
+    mensajeCamara.value = 'Primero debes iniciar la ruta.'
     return
   }
 
-  const detector = new BarcodeDetectorApi({
-    formats: ['qr_code', 'code_128', 'code_39', 'ean_13'],
-  })
-
-  const loop = async () => {
-    if (!escaneando.value || !videoRef.value) return
-
-    try {
-      const codes = await detector.detect(videoRef.value)
-
-      if (codes.length > 0) {
-        const codigo = String(codes[0].rawValue || '').trim()
-        const ahora = Date.now()
-
-        if (codigo && (codigo !== ultimoCodigo || ahora - ultimoScanAt > 2500)) {
-          ultimoCodigo = codigo
-          ultimoScanAt = ahora
-          await procesarCodigo(codigo)
-        }
-      }
-    } catch {
-      // Evita cortar el escaneo por errores temporales
-    }
-
-    detectorLoopId = requestAnimationFrame(loop)
+  if (camaraActiva.value || procesandoEscaneo.value) {
+    return
   }
 
-  detectorLoopId = requestAnimationFrame(loop)
+  if (!window.isSecureContext && location.hostname !== 'localhost') {
+    mensajeCamara.value = 'El navegador solo permite usar cámara en HTTPS o localhost.'
+    return
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    mensajeCamara.value = 'Este navegador no permite acceder a la cámara. Ingresa el código manualmente.'
+    return
+  }
+
+  try {
+    await nextTick()
+
+    if (!html5QrCode) {
+      html5QrCode = new Html5Qrcode(QR_READER_ID)
+    }
+
+    const config = {
+      fps: 10,
+      qrbox: { width: 260, height: 260 },
+      aspectRatio: 1.0,
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.QR_CODE,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+      ],
+    }
+
+    await html5QrCode.start(
+      { facingMode: 'environment' },
+      config,
+      async (decodedText) => {
+        await onCodigoDetectado(decodedText)
+      },
+      () => {
+        // html5-qrcode llama esto muchas veces mientras busca códigos.
+        // No se muestra error para no molestar al chofer.
+      }
+    )
+
+    camaraActiva.value = true
+    mensajeCamara.value = 'Cámara activa. Apunta al QR o código de barras del boleto.'
+  } catch (err: any) {
+    camaraActiva.value = false
+    mensajeCamara.value = obtenerMensajeErrorCamara(err)
+  }
+}
+
+async function detenerCamara() {
+  mensajeCamara.value = ''
+
+  if (!html5QrCode) {
+    camaraActiva.value = false
+    return
+  }
+
+  try {
+    if (camaraActiva.value) {
+      await html5QrCode.stop()
+    }
+
+    await html5QrCode.clear()
+  } catch {
+    // Si la cámara ya estaba detenida, no se debe bloquear la vista.
+  } finally {
+    html5QrCode = null
+    camaraActiva.value = false
+    procesandoEscaneo.value = false
+  }
+}
+
+async function onCodigoDetectado(valor: string) {
+  const codigo = extraerCodigoBoleto(valor)
+  const ahora = Date.now()
+
+  if (!codigo) return
+
+  if (procesandoEscaneo.value) return
+
+  if (codigo === ultimoCodigo && ahora - ultimoScanAt < 4000) {
+    return
+  }
+
+  ultimoCodigo = codigo
+  ultimoScanAt = ahora
+
+  procesandoEscaneo.value = true
+
+  try {
+    if (html5QrCode && camaraActiva.value) {
+      try {
+        html5QrCode.pause(true)
+      } catch {
+        // Algunos navegadores no soportan pause correctamente.
+      }
+    }
+
+    await procesarCodigo(codigo)
+  } finally {
+    window.setTimeout(() => {
+      procesandoEscaneo.value = false
+
+      if (html5QrCode && camaraActiva.value) {
+        try {
+          html5QrCode.resume()
+        } catch {
+          // Si no se puede reanudar, el chofer puede presionar iniciar otra vez.
+        }
+      }
+    }, 1800)
+  }
 }
 
 async function procesarCodigoManual() {
-  await procesarCodigo(codigoManual.value)
+  const codigo = extraerCodigoBoleto(codigoManual.value)
+
+  if (!codigo) {
+    ultimoResultado.value = {
+      ok: false,
+      mensaje: 'Ingrese un código QR o código de barras.',
+    }
+    return
+  }
+
+  await procesarCodigo(codigo)
   codigoManual.value = ''
 }
 
 async function procesarCodigo(codigo: string) {
+  if (!rutaEnCurso.value) {
+    ultimoResultado.value = {
+      ok: false,
+      mensaje: 'Primero debes iniciar la ruta.',
+    }
+    return
+  }
+
   const res = await validarQrBoleto(codigo)
-  resultado.value = res.mensaje
+  ultimoResultado.value = res
+}
+
+function obtenerMensajeErrorCamara(err: any) {
+  const name = String(err?.name || '')
+  const message = String(err?.message || '')
+
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+    return 'Permiso de cámara denegado. Activa el permiso de cámara en el navegador.'
+  }
+
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+    return 'No se encontró una cámara disponible en este dispositivo.'
+  }
+
+  if (name === 'NotReadableError' || name === 'TrackStartError') {
+    return 'La cámara está en uso por otra aplicación o no se pudo iniciar.'
+  }
+
+  if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') {
+    return 'No se pudo usar la cámara trasera. Intenta con otra cámara o ingresa el código manualmente.'
+  }
+
+  if (message.toLowerCase().includes('permission')) {
+    return 'Permiso de cámara denegado. Activa el permiso de cámara en el navegador.'
+  }
+
+  return 'No se pudo abrir la cámara. Verifica permisos, HTTPS o usa el ingreso manual.'
 }
 
 function estadoRutaClass(estado?: string) {
-  if (estado === 'Habilitada') return 'bg-blue-100 text-blue-700 border-blue-200'
+  if (estado === 'Programada' || estado === 'Habilitada') return 'bg-blue-100 text-blue-700 border-blue-200'
   if (estado === 'EnCurso') return 'bg-amber-100 text-amber-700 border-amber-200'
-  if (estado === 'Finalizada') return 'bg-emerald-100 text-emerald-700 border-emerald-200'
+  if (estado === 'Completada') return 'bg-emerald-100 text-emerald-700 border-emerald-200'
+  if (estado === 'Cancelada') return 'bg-red-100 text-red-700 border-red-200'
   return 'bg-slate-100 text-slate-700 border-slate-200'
+}
+
+function resultadoClass(ok?: boolean) {
+  if (ok === true) return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (ok === false) return 'border-red-200 bg-red-50 text-red-700'
+  return 'border-blue-200 bg-blue-50 text-blue-700'
 }
 </script>
 
 <template>
   <div class="space-y-6">
-    <section class="rounded-[2rem] bg-slate-900 p-6 md:p-8 text-white shadow-2xl">
+    <section class="rounded-[2rem] bg-slate-900 p-6 text-white shadow-2xl md:p-8">
       <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <p class="text-xs font-black uppercase tracking-wider text-blue-200">
             Panel del chofer
           </p>
 
-          <h1 class="mt-2 text-2xl md:text-3xl font-black">
+          <h1 class="mt-2 text-2xl font-black md:text-3xl">
             Control de viaje y validación QR
           </h1>
 
           <p class="mt-2 text-sm text-slate-300">
-            Inicia el viaje, escanea boletos y finaliza la ruta.
+            Inicia la ruta, escanea boletos y registra el abordaje de pasajeros.
           </p>
         </div>
 
@@ -204,33 +322,53 @@ function estadoRutaClass(estado?: string) {
       </div>
     </section>
 
-    <section v-if="error" class="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+    <section
+      v-if="error"
+      class="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700"
+    >
       {{ error }}
     </section>
 
-    <section v-if="success" class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700">
+    <section
+      v-if="success"
+      class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700"
+    >
       {{ success }}
     </section>
 
-    <section v-if="resultado" class="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-700">
+    <section
+      v-if="resultado && !ultimoResultado"
+      class="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-700"
+    >
       {{ resultado }}
     </section>
 
-    <section v-if="!rutaActual && !loading" class="rounded-2xl bg-white p-6 shadow-md border border-slate-100">
+    <section
+      v-if="ultimoResultado"
+      class="rounded-2xl border p-4 text-sm font-bold"
+      :class="resultadoClass(ultimoResultado.ok)"
+    >
+      {{ ultimoResultado.mensaje }}
+    </section>
+
+    <section
+      v-if="!rutaActual && !loading"
+      class="rounded-2xl border border-slate-100 bg-white p-6 shadow-md"
+    >
       <h2 class="text-xl font-black text-slate-900">
-        No tienes una ruta asignada
+        No tienes una ruta asignada para hoy
       </h2>
 
       <p class="mt-2 text-sm text-slate-500">
-        No existe una ruta habilitada o en curso asignada a tu usuario.
+        Cuando el administrador te asigne una ruta para la fecha actual, aparecerá en esta pantalla.
       </p>
     </section>
 
     <template v-if="rutaActual">
       <section class="grid gap-4 lg:grid-cols-4">
-        <article class="rounded-2xl bg-white p-5 shadow-md border border-slate-100 lg:col-span-2">
+        <article class="rounded-2xl border border-slate-100 bg-white p-5 shadow-md lg:col-span-2">
           <p class="text-xs font-black uppercase tracking-wider text-slate-400">
-            Ruta asignada
+            Ruta actual
           </p>
 
           <h2 class="mt-2 text-2xl font-black text-slate-900">
@@ -240,8 +378,8 @@ function estadoRutaClass(estado?: string) {
           </h2>
 
           <div class="mt-4 grid gap-3 sm:grid-cols-3">
-            <div class="rounded-xl bg-slate-50 p-3 border border-slate-100">
-              <p class="text-xs font-bold text-slate-400 uppercase">
+            <div class="rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <p class="text-xs font-bold uppercase text-slate-400">
                 Fecha
               </p>
               <p class="font-black text-slate-800">
@@ -249,8 +387,8 @@ function estadoRutaClass(estado?: string) {
               </p>
             </div>
 
-            <div class="rounded-xl bg-slate-50 p-3 border border-slate-100">
-              <p class="text-xs font-bold text-slate-400 uppercase">
+            <div class="rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <p class="text-xs font-bold uppercase text-slate-400">
                 Hora salida
               </p>
               <p class="font-black text-slate-800">
@@ -258,8 +396,8 @@ function estadoRutaClass(estado?: string) {
               </p>
             </div>
 
-            <div class="rounded-xl bg-slate-50 p-3 border border-slate-100">
-              <p class="text-xs font-bold text-slate-400 uppercase">
+            <div class="rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <p class="text-xs font-bold uppercase text-slate-400">
                 Estado
               </p>
               <span
@@ -272,7 +410,7 @@ function estadoRutaClass(estado?: string) {
           </div>
         </article>
 
-        <article class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
+        <article class="rounded-2xl border border-slate-100 bg-white p-5 shadow-md">
           <p class="text-xs font-black uppercase tracking-wider text-slate-400">
             Bus
           </p>
@@ -286,7 +424,7 @@ function estadoRutaClass(estado?: string) {
           </p>
         </article>
 
-        <article class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
+        <article class="rounded-2xl border border-slate-100 bg-white p-5 shadow-md">
           <p class="text-xs font-black uppercase tracking-wider text-slate-400">
             Tiempo en viaje
           </p>
@@ -302,7 +440,7 @@ function estadoRutaClass(estado?: string) {
       </section>
 
       <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <article class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
+        <article class="rounded-2xl border border-slate-100 bg-white p-5 shadow-md">
           <p class="text-xs font-black uppercase tracking-wider text-slate-400">
             Total
           </p>
@@ -311,7 +449,7 @@ function estadoRutaClass(estado?: string) {
           </p>
         </article>
 
-        <article class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
+        <article class="rounded-2xl border border-slate-100 bg-white p-5 shadow-md">
           <p class="text-xs font-black uppercase tracking-wider text-slate-400">
             Pendientes
           </p>
@@ -320,7 +458,7 @@ function estadoRutaClass(estado?: string) {
           </p>
         </article>
 
-        <article class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
+        <article class="rounded-2xl border border-slate-100 bg-white p-5 shadow-md">
           <p class="text-xs font-black uppercase tracking-wider text-slate-400">
             En viaje
           </p>
@@ -329,7 +467,7 @@ function estadoRutaClass(estado?: string) {
           </p>
         </article>
 
-        <article class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
+        <article class="rounded-2xl border border-slate-100 bg-white p-5 shadow-md">
           <p class="text-xs font-black uppercase tracking-wider text-slate-400">
             Finalizados
           </p>
@@ -338,7 +476,7 @@ function estadoRutaClass(estado?: string) {
           </p>
         </article>
 
-        <article class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
+        <article class="rounded-2xl border border-slate-100 bg-white p-5 shadow-md">
           <p class="text-xs font-black uppercase tracking-wider text-slate-400">
             Rechazados
           </p>
@@ -349,59 +487,75 @@ function estadoRutaClass(estado?: string) {
       </section>
 
       <section class="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        <article class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
+        <article class="rounded-2xl border border-slate-100 bg-white p-5 shadow-md">
           <h2 class="text-lg font-black text-slate-900">
             Validación de boletos
           </h2>
 
           <p class="mt-1 text-sm text-slate-500">
-            Solo puedes escanear boletos cuando la ruta está EnCurso.
+            Presiona “Iniciar cámara” y apunta al QR o código de barras. En celular se intentará usar la cámara trasera.
           </p>
 
           <div class="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-slate-950">
-            <video ref="videoRef" class="h-72 w-full object-cover"></video>
+            <div id="chofer-qr-reader" class="min-h-72 w-full"></div>
           </div>
+
+          <p
+            v-if="mensajeCamara"
+            class="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-bold text-blue-700"
+          >
+            {{ mensajeCamara }}
+          </p>
 
           <div class="mt-4 flex flex-col gap-3 sm:flex-row">
             <button
-              v-if="!escaneando"
               type="button"
               @click="iniciarCamara"
-              :disabled="!rutaEnCurso || loading"
+              :disabled="!puedeValidar || camaraActiva || procesandoEscaneo"
               class="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:opacity-50"
             >
               Iniciar cámara
             </button>
 
             <button
-              v-else
               type="button"
               @click="detenerCamara"
-              class="rounded-xl bg-slate-700 px-4 py-3 text-sm font-black text-white hover:bg-slate-800"
+              :disabled="!camaraActiva"
+              class="rounded-xl bg-slate-700 px-4 py-3 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-50"
             >
               Detener cámara
             </button>
+          </div>
 
+          <div class="mt-4 flex flex-col gap-3 sm:flex-row">
             <input
               v-model="codigoManual"
               type="text"
               placeholder="Código QR o código de barras"
               class="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-sm"
-              :disabled="!rutaEnCurso"
+              :disabled="!puedeValidar || procesandoEscaneo"
+              @keyup.enter="procesarCodigoManual"
             />
 
             <button
               type="button"
               @click="procesarCodigoManual"
-              :disabled="!rutaEnCurso || loading"
+              :disabled="!puedeValidar || procesandoEscaneo || !codigoManual.trim()"
               class="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-black text-white hover:bg-emerald-700 disabled:opacity-50"
             >
-              Validar
+              Validar código
             </button>
+          </div>
+
+          <div
+            v-if="procesandoEscaneo"
+            class="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-700"
+          >
+            Validando boleto. Espera un momento...
           </div>
         </article>
 
-        <article class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
+        <article class="rounded-2xl border border-slate-100 bg-white p-5 shadow-md">
           <h2 class="text-lg font-black text-slate-900">
             Control del viaje
           </h2>
@@ -414,7 +568,7 @@ function estadoRutaClass(estado?: string) {
               :disabled="loading"
               class="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              Iniciar viaje
+              Iniciar ruta
             </button>
 
             <button
@@ -436,13 +590,61 @@ function estadoRutaClass(estado?: string) {
             >
               Marcar emergencia
             </button>
+
+            <p
+              v-if="rutaCompletada || rutaCancelada"
+              class="rounded-xl bg-slate-50 p-3 text-sm font-bold text-slate-600"
+            >
+              Esta ruta ya no permite validar boletos.
+            </p>
           </div>
         </article>
       </section>
 
-      <section class="rounded-2xl bg-white p-5 shadow-md border border-slate-100">
+      <section
+        v-if="ultimoResultado?.pasajero"
+        class="rounded-2xl border border-emerald-100 bg-white p-5 shadow-md"
+      >
+        <h2 class="text-lg font-black text-emerald-700">
+          Último pasajero validado
+        </h2>
+
+        <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="rounded-xl bg-slate-50 p-3">
+            <p class="text-xs font-bold uppercase text-slate-400">Nombre</p>
+            <p class="font-black text-slate-800">{{ ultimoResultado.pasajero.nombre }}</p>
+          </div>
+
+          <div class="rounded-xl bg-slate-50 p-3">
+            <p class="text-xs font-bold uppercase text-slate-400">Cédula</p>
+            <p class="font-black text-slate-800">{{ ultimoResultado.pasajero.cedula }}</p>
+          </div>
+
+          <div class="rounded-xl bg-slate-50 p-3">
+            <p class="text-xs font-bold uppercase text-slate-400">Asiento</p>
+            <p class="font-black text-slate-800">{{ ultimoResultado.pasajero.asiento }}</p>
+          </div>
+
+          <div class="rounded-xl bg-slate-50 p-3">
+            <p class="text-xs font-bold uppercase text-slate-400">Bus</p>
+            <p class="font-black text-slate-800">{{ ultimoResultado.pasajero.bus }}</p>
+          </div>
+
+          <div class="rounded-xl bg-slate-50 p-3 sm:col-span-2">
+            <p class="text-xs font-bold uppercase text-slate-400">Origen</p>
+            <p class="font-black text-slate-800">{{ ultimoResultado.pasajero.origen }}</p>
+          </div>
+
+          <div class="rounded-xl bg-slate-50 p-3 sm:col-span-2">
+            <p class="text-xs font-bold uppercase text-slate-400">Destino</p>
+            <p class="font-black text-slate-800">{{ ultimoResultado.pasajero.destino }}</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="rounded-2xl border border-slate-100 bg-white p-5 shadow-md">
         <h2 class="text-lg font-black text-slate-900">
-          Historial de escaneos
+          Historial de pasajeros validados
         </h2>
 
         <div class="mt-4 overflow-x-auto">
@@ -452,6 +654,7 @@ function estadoRutaClass(estado?: string) {
                 <th class="py-3 pr-4">Código</th>
                 <th class="py-3 pr-4">Hora</th>
                 <th class="py-3 pr-4">Resultado</th>
+                <th class="py-3 pr-4">Pasajero</th>
               </tr>
             </thead>
 
@@ -469,13 +672,22 @@ function estadoRutaClass(estado?: string) {
                   {{ item.hora }}
                 </td>
 
+                <td class="py-3 pr-4">
+                  <span
+                    class="rounded-full px-3 py-1 text-xs font-black"
+                    :class="item.ok ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'"
+                  >
+                    {{ item.resultado }}
+                  </span>
+                </td>
+
                 <td class="py-3 pr-4 text-slate-700">
-                  {{ item.resultado }}
+                  {{ item.pasajero?.nombre || '—' }}
                 </td>
               </tr>
 
               <tr v-if="historial.length === 0">
-                <td colspan="3" class="py-8 text-center text-slate-500">
+                <td colspan="4" class="py-8 text-center text-slate-500">
                   Aún no hay boletos escaneados en esta sesión.
                 </td>
               </tr>

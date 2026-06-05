@@ -17,6 +17,7 @@ import MisBoletos from './Presentation/Views/cliente/MisBoletos.vue'
 import ValidarQR from './Presentation/Views/chofer/ValidarQR.vue'
 import Reportes from './Presentation/Views/reportes/Reportes.vue'
 import { useAuthStore } from './Presentation/Store/authStore'
+import  AprobarPago  from './Presentation/Views/oficinista/AprobarPago.vue'
 
 const ADMIN = ['admin', 'administrador']
 const OFICINISTA = ['oficinista']
@@ -39,7 +40,6 @@ const router = createRouter({
       component: Login,
       meta: { public: true },
     },
-
     {
       path: '/',
       name: 'Dashboard',
@@ -47,9 +47,6 @@ const router = createRouter({
       meta: { roles: TODOS },
     },
 
-    // =========================
-    // ADMINISTRADOR
-    // =========================
     {
       path: '/admin/usuarios',
       name: 'Usuarios',
@@ -74,11 +71,6 @@ const router = createRouter({
       component: HojaRutaAdmin,
       meta: { roles: ADMIN },
     },
-
-    // =========================
-    // RUTAS
-    // Administrador y oficinista
-    // =========================
     {
       path: '/admin/rutas',
       name: 'RutasAdmin',
@@ -86,20 +78,27 @@ const router = createRouter({
       meta: { roles: [...ADMIN, ...OFICINISTA] },
     },
 
-    // =========================
-    // VENTA
-    // Usuario final, oficinista, chofer y administrador
-    // =========================
     {
-      path: '/venta',
-      name: 'VentaBoletos',
+      path: '/oficinista/venta-boletos',
+      name: 'VentaBoletosOficinista',
       component: VentaBoletos,
-      meta: { roles: [...CLIENTE, ...OFICINISTA, ...CHOFER, ...ADMIN] },
+      meta: { roles: [...OFICINISTA, ...ADMIN] },
     },
 
-    // =========================
-    // CLIENTE / USUARIO FINAL
-    // =========================
+    {
+      path: '/cliente/comprar-boleto',
+      name: 'ComprarBoletoCliente',
+      component: BuscarRutas,
+      meta: { roles: [...CLIENTE] },
+    },
+
+    {
+      path: '/oficinista/aprobar-pagos',
+      name: 'AprobarPago',
+      component: AprobarPago,
+      meta: { roles: [...OFICINISTA, ...ADMIN] },
+    },
+
     {
       path: '/buscar',
       name: 'BuscarRutas',
@@ -113,21 +112,19 @@ const router = createRouter({
       meta: { roles: CLIENTE },
     },
 
-    // =========================
-    // ABORDAJE
-    // Oficinista, chofer y administrador
-    // =========================
     {
       path: '/abordaje',
       name: 'ValidarQR',
       component: ValidarQR,
-      meta: { roles: [...OFICINISTA, ...CHOFER, ...ADMIN] },
+      meta: { roles: [...CHOFER, ...ADMIN] },
+    },
+    {
+      path: '/chofer/validar-qr',
+      name: 'ValidarQRChofer',
+      component: ValidarQR,
+      meta: { roles: [...CHOFER, ...ADMIN] },
     },
 
-    // =========================
-    // REPORTES
-    // Oficinista y administrador
-    // =========================
     {
       path: '/reportes',
       name: 'Reportes',
@@ -179,7 +176,6 @@ router.beforeEach(async (to) => {
   }
 
   const userRole = normalizeRole(authStore.role)
-
   const normalizedAllowedRoles = allowedRoles.map(role => normalizeRole(role))
 
   if (userRole && normalizedAllowedRoles.includes(userRole)) {
