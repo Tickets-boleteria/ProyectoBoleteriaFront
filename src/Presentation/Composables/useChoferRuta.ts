@@ -163,8 +163,8 @@ export function useChoferRuta() {
   return String(data.Cedula)
 }
 
-  async function cargarRutaChofer() {
-    loading.value = true
+  async function cargarRutaChofer(showLoading = true) {
+    if (showLoading) loading.value = true
     error.value = ''
     success.value = ''
     resultado.value = ''
@@ -233,7 +233,7 @@ export function useChoferRuta() {
     } catch (err: any) {
       error.value = err.message || 'No se pudo cargar la ruta asignada al chofer.'
     } finally {
-      loading.value = false
+      if (showLoading) loading.value = false
     }
   }
 

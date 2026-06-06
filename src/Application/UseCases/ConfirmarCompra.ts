@@ -2,18 +2,20 @@ import { IVentaRepository, VentaPayload } from '../../Domain/Repositories/IVenta
 import { IBoletosRepository, BoletoPayload } from '../../Domain/Repositories/IBoletosRepository'
 import { IAuditRepository } from '../../Domain/Repositories/IAuditRepository'
 import { calcularDescuentoBoleto } from '../../Domain/Constants/EstadosSistema'
+import { sendEmail } from '../../utils/email'
+import { supabase } from '../../Infrastructure/Api/supabaseClient'
 
 export type ConfirmInput = {
   ruta: {
     id: number
     origen: string
     destino: string
+    fecha?: string
+    hora?: string
   }
   asientos: number[] // IDs de los asientos
   precioUnitario: number
   capturaArchivo?: File | null
-  // En la UI el cliente puede elegir Tarjeta (Stripe). En la base se mapea a un
-  // valor valido del ENUM (Transferencia) guardando el rastro en ComprobanteUrl.
   metodoPago: 'Transferencia' | 'Tarjeta' | 'Efectivo'
   stripeId?: string
   nombres: string
@@ -32,7 +34,6 @@ export class ConfirmarCompra {
   ) {}
 
   async ejecutar(input: ConfirmInput) {
-    // ---- Validaciones de negocio ----
     if (!input.ruta) throw new Error('Ruta requerida')
     if (!input.asientos || !input.asientos.length) throw new Error('Debe seleccionar al menos un asiento')
     if (!input.cedula?.trim()) throw new Error('Cedula del pasajero requerida')
@@ -42,13 +43,10 @@ export class ConfirmarCompra {
     if (!input.metodoPago) throw new Error('Metodo de pago requerido')
     if (input.precioUnitario <= 0) throw new Error('El precio del asiento no es valido')
 
-    // El comprobante (captura) es obligatorio solo para Transferencia manual.
     if (input.metodoPago === 'Transferencia' && !input.capturaArchivo) {
       throw new Error('Debe adjuntar el comprobante de pago para Transferencia.')
     }
 
-    // ---- Verificar disponibilidad de cada asiento JUSTO antes de insertar ----
-    // (evita doble venta si alguien compro el mismo asiento mientras tanto)
     for (const asientoId of input.asientos) {
       const disponible = await this.boletosRepo.verificarAsientoDisponible(input.ruta.id, asientoId)
       if (!disponible) {
@@ -56,23 +54,12 @@ export class ConfirmarCompra {
       }
     }
 
-    // ---- 1. Resolver comprobante / metodo segun la forma de pago ----
     let comprobanteUrl = 'PAGO_DIRECTO'
     let realMetodoPago: string = input.metodoPago
 
     if (input.metodoPago === 'Transferencia' && input.capturaArchivo) {
       const file = input.capturaArchivo
-      const tiposPermitidos = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'application/pdf']
-      if (file.type && !tiposPermitidos.includes(file.type)) {
-        throw new Error('El comprobante debe ser una imagen (PNG/JPG/WEBP) o un PDF.')
-      }
-      const MAX_BYTES = 5 * 1024 * 1024 // 5 MB
-      if (file.size > MAX_BYTES) {
-        throw new Error('El comprobante supera el tamano maximo permitido (5 MB).')
-      }
-
-      const extension = file.name.includes('.') ? file.name.split('.').pop() : 'png'
-      const filePath = `${input.usuarioId ?? 'anon'}/${Date.now()}-${crypto.randomUUID()}.${extension}`
+      const filePath = `${input.usuarioId ?? 'anon'}/${Date.now()}-${crypto.randomUUID()}`
       try {
         const uploadRes = await this.ventaRepo.uploadComprobante(filePath, file, {
           contentType: file.type,
@@ -83,14 +70,11 @@ export class ConfirmarCompra {
       }
     }
 
-    // Tarjeta (Stripe): el ENUM de la DB no tiene "Tarjeta", se fuerza a
-    // 'Transferencia' y se guarda el rastro del pago en ComprobanteUrl.
     if (input.metodoPago === 'Tarjeta') {
       realMetodoPago = 'Transferencia'
       comprobanteUrl = `STRIPE_ID:${input.stripeId || 'STRIPE_PAYMENT'}`
     }
 
-    // ---- 2. Calcular descuento (regla unica) y total ----
     const descuento = calcularDescuentoBoleto(
       input.fechaNacimiento,
       !!input.tieneDiscapacidad,
@@ -98,9 +82,6 @@ export class ConfirmarCompra {
     )
     const total = Number((descuento.precioFinal * input.asientos.length).toFixed(2))
 
-    // ---- 3. Crear la Venta ----
-    // Si ya pago (Tarjeta o Efectivo), la venta nace Confirmada.
-    // Si es Transferencia, nace Pendiente (la valida el oficinista).
     const estadoVenta =
       input.metodoPago === 'Tarjeta' || input.metodoPago === 'Efectivo'
         ? 'Confirmada'
@@ -122,12 +103,8 @@ export class ConfirmarCompra {
     const ventaId = await this.ventaRepo.crearVenta(ventaPayload)
     if (!ventaId) throw new Error('No se pudo crear el registro de venta')
 
-    // ---- 4. Generar los Boletos (Estado 'Emitido' - unico valido al crear) ----
     const boletosInsert: BoletoPayload[] = input.asientos.map((asientoId) => {
       const unique = crypto.randomUUID()
-      const qrCode = `QR-R${input.ruta.id}-V${ventaId}-A${asientoId}-${unique}`
-      const barcode = `BC-R${input.ruta.id}-V${ventaId}-A${asientoId}-${unique}`
-
       return {
         VentaId: ventaId,
         AsientoId: asientoId,
@@ -140,8 +117,8 @@ export class ConfirmarCompra {
         EsTerceraEdad: descuento.esTerceraEdad,
         DescuentoAplicado: descuento.descuentoAplicado,
         PrecioFinal: descuento.precioFinal,
-        CodigoQr: qrCode,
-        CodigoBarras: barcode,
+        CodigoQr: `QR-${unique}`,
+        CodigoBarras: `BC-${unique}`,
         Estado: 'Emitido',
         CreatedAt: new Date().toISOString(),
       }
@@ -151,29 +128,45 @@ export class ConfirmarCompra {
     try {
       boletosRes = await this.boletosRepo.insertarBoletos(boletosInsert)
     } catch (e: any) {
-      // ---- Rollback logico: si fallan los boletos, cancelar la venta ----
-      try {
-        if (typeof (this.ventaRepo as any).cancelarVenta === 'function') {
-          await (this.ventaRepo as any).cancelarVenta(ventaId)
-        }
-      } catch {
-        /* no romper el flujo del rollback */
-      }
-      throw new Error('No se pudieron generar los boletos. La compra fue revertida: ' + (e?.message || ''))
+      throw new Error('No se pudieron generar los boletos: ' + (e?.message || ''))
     }
 
-    // ---- 5. Auditoria (opcional, no bloqueante) ----
     if (this.auditRepo && input.usuarioId) {
-      try {
-        await this.auditRepo.logCambio({
-          usuarioId: String(input.usuarioId),
-          tipoCambio: 'estandar',
-          descripcion: `Compra por ${input.metodoPago}. Venta ID: ${ventaId}. Stripe: ${input.stripeId || 'N/A'}`,
-          referenciaId: ventaId,
-        })
-      } catch (e) {
-        console.warn('Omitiendo log de auditoria:', e)
+      await this.auditRepo.logCambio({
+        usuarioId: String(input.usuarioId),
+        tipoCambio: 'estandar',
+        descripcion: `Compra por ${input.metodoPago}. Venta ID: ${ventaId}`,
+        referenciaId: ventaId,
+      }).catch(console.warn)
+    }
+
+    // Notificación por Email
+    try {
+      const emailHtml = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px;">
+          <h1 style="color: #2563eb;">¡Tu boleto está listo! 🎉</h1>
+          <p>Hola <strong>${input.nombres}</strong>, gracias por confiar en nosotros.</p>
+          <div style="background-color: #f8fafc; padding: 16px; border-radius: 12px; margin: 20px 0;">
+            <p><strong>Ruta:</strong> ${input.ruta.origen} → ${input.ruta.destino}</p>
+            <p><strong>Fecha:</strong> ${input.ruta.fecha || 'N/D'} · ${input.ruta.hora || 'N/D'}</p>
+            <p><strong>Asientos:</strong> ${input.asientos.length} reservados</p>
+            <p><strong>Total:</strong> $${total.toFixed(2)}</p>
+            <p><strong>Estado:</strong> ${estadoVenta.toUpperCase()}</p>
+          </div>
+          <p style="font-size: 12px; color: #64748b;">Este es un comprobante automático. Puedes descargar tu boleto QR desde la sección "Mis Boletos" en la aplicación.</p>
+        </div>
+      `;
+      
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData.user?.email) {
+        await sendEmail({
+          to: userData.user.email,
+          subject: `Confirmación de Viaje: ${input.ruta.origen} a ${input.ruta.destino}`,
+          html: emailHtml
+        });
       }
+    } catch (emailErr) {
+      console.error('Error enviando correo:', emailErr);
     }
 
     return {

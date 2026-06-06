@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
+import { supabase } from '../../../Infrastructure/Api/supabaseClient'
 import { useChoferRuta } from '../../Composables/useChoferRuta'
 import { extraerCodigoBoleto } from '../../../utils/qrcode'
 
@@ -34,6 +35,7 @@ const {
   rutaCancelada,
   minutosDesdeSalida,
   cargarRutaChofer,
+  cargarResumenPasajeros,
   iniciarViaje,
   intentarFinalizarViaje,
   finalizarViaje,
@@ -41,14 +43,50 @@ const {
   validarQrBoleto,
 } = useChoferRuta()
 
+// --- REALTIME LOGIC ---
+const realTimeChannel = ref<any>(null)
+
+function setupRealTime() {
+  if (realTimeChannel.value) {
+    supabase.removeChannel(realTimeChannel.value)
+  }
+
+  // Escuchamos cambios en Rutas (estado del viaje) y Boletos (conteo de pasajeros)
+  realTimeChannel.value = supabase
+    .channel('public:Abordaje:sync')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'Rutas' },
+      () => {
+        console.log('Sincronización: cambio detectado en Rutas.')
+        cargarRutaChofer(false) // Recarga silenciosa sin spinner
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'Boletos' },
+      async () => {
+        console.log('Sincronización: cambio detectado en Boletos.')
+        if (rutaActual.value?.Id) {
+          await cargarResumenPasajeros(rutaActual.value.Id)
+        }
+      }
+    )
+    .subscribe()
+}
+
 const puedeValidar = computed(() => rutaEnCurso.value && !loading.value)
 
 onMounted(async () => {
   await cargarRutaChofer()
+  setupRealTime()
 })
 
 onBeforeUnmount(() => {
   void detenerCamara()
+  if (realTimeChannel.value) {
+    supabase.removeChannel(realTimeChannel.value)
+  }
 })
 
 async function onIniciarViaje() {
@@ -311,14 +349,10 @@ function resultadoClass(ok?: boolean) {
           </p>
         </div>
 
-        <button
-          type="button"
-          @click="cargarRutaChofer"
-          :disabled="loading"
-          class="rounded-xl bg-white/10 px-4 py-2 text-sm font-black text-white hover:bg-white/20 disabled:opacity-50"
-        >
-          Actualizar
-        </button>
+        <div class="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/10 backdrop-blur border border-white/10">
+          <div class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+          <span class="text-[10px] font-black uppercase tracking-widest text-emerald-100">Sincronización en vivo</span>
+        </div>
       </div>
     </section>
 

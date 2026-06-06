@@ -1,5 +1,7 @@
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue'
+
+const props = defineProps<{
   currentPage: number;
   totalPages: number;
   totalItems: number;
@@ -13,68 +15,107 @@ defineEmits<{
   (e: 'prev'): void;
   (e: 'setPage', page: number): void;
 }>();
+
+const visiblePages = computed(() => {
+  const delta = 2;
+  const range = [];
+  const rangeWithDots = [];
+  let l;
+
+  for (let i = 1; i <= props.totalPages; i++) {
+    if (i === 1 || i === props.totalPages || (i >= props.currentPage - delta && i <= props.currentPage + delta)) {
+      range.push(i);
+    }
+  }
+
+  for (const i of range) {
+    if (l) {
+      if (i - l === 2) {
+        rangeWithDots.push(l + 1);
+      } else if (i - l !== 1) {
+        rangeWithDots.push('...');
+      }
+    }
+    rangeWithDots.push(i);
+    l = i;
+  }
+
+  return rangeWithDots;
+})
 </script>
 
 <template>
-  <div class="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50/50">
+  <div class="flex items-center justify-between px-6 py-4 rounded-3xl bg-white shadow-sm border border-slate-100">
+    <!-- Mobile View -->
     <div class="flex flex-1 justify-between sm:hidden">
       <button
         @click="$emit('prev')"
         :disabled="!hasPrevPage"
-        class="relative inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        class="btn-nav"
       >
-        Anterior
+        ← Anterior
       </button>
       <button
         @click="$emit('next')"
         :disabled="!hasNextPage"
-        class="relative ml-3 inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        class="btn-nav ml-3"
       >
-        Siguiente
+        Siguiente →
       </button>
     </div>
+
+    <!-- Desktop View -->
     <div class="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
       <div>
-        <p class="text-xs text-slate-500">
-          Mostrando página <span class="font-black text-slate-900">{{ currentPage }}</span> de
-          <span class="font-black text-slate-900">{{ totalPages }}</span>
-          ({{ totalItems }} registros en total)
+        <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">
+          Página <span class="text-blue-600">{{ currentPage }}</span> de
+          <span class="text-slate-900">{{ totalPages }}</span>
+          <span class="mx-2 opacity-20">|</span>
+          {{ totalItems }} Registros
         </p>
       </div>
+
       <div>
-        <nav class="isolate inline-flex -space-x-px rounded-xl shadow-sm gap-1" aria-label="Pagination">
+        <nav class="flex items-center gap-1.5" aria-label="Pagination">
           <button
             @click="$emit('prev')"
             :disabled="!hasPrevPage"
-            class="relative inline-flex items-center rounded-l-xl px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-40"
+            class="h-9 w-9 flex items-center justify-center rounded-xl border border-slate-100 bg-white text-slate-400 transition-all hover:bg-slate-50 hover:text-blue-600 disabled:opacity-30 disabled:hover:bg-white"
           >
-            <span class="sr-only">Anterior</span>
-            <span class="text-lg">‹</span>
+            <span class="text-lg leading-none">‹</span>
           </button>
           
-          <button
-            v-for="page in totalPages"
-            :key="page"
-            @click="$emit('setPage', page)"
-            aria-current="page"
-            class="relative inline-flex items-center px-4 py-2 text-xs font-black ring-1 ring-inset ring-slate-200 focus:z-20 focus:outline-offset-0 transition-all rounded-lg"
-            :class="page === currentPage 
-              ? 'z-10 bg-blue-600 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ring-blue-600' 
-              : 'text-slate-900 hover:bg-slate-50'"
-          >
-            {{ page }}
-          </button>
+          <template v-for="(page, idx) in visiblePages" :key="idx">
+            <span v-if="page === '...'" class="px-2 text-slate-300 font-black">...</span>
+            <button
+              v-else
+              @click="$emit('setPage', Number(page))"
+              class="h-9 min-w-[36px] px-2 flex items-center justify-center rounded-xl text-xs font-black transition-all"
+              :class="page === currentPage 
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' 
+                : 'bg-white text-slate-500 border border-slate-100 hover:border-blue-200 hover:text-blue-600'"
+            >
+              {{ page }}
+            </button>
+          </template>
 
           <button
             @click="$emit('next')"
             :disabled="!hasNextPage"
-            class="relative inline-flex items-center rounded-r-xl px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-40"
+            class="h-9 w-9 flex items-center justify-center rounded-xl border border-slate-100 bg-white text-slate-400 transition-all hover:bg-slate-50 hover:text-blue-600 disabled:opacity-30 disabled:hover:bg-white"
           >
-            <span class="sr-only">Siguiente</span>
-            <span class="text-lg">›</span>
+            <span class="text-lg leading-none">›</span>
           </button>
         </nav>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+@reference "tailwindcss";
+
+.btn-nav {
+  @apply relative inline-flex items-center rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-xs font-black uppercase tracking-widest text-slate-600 transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-40;
+}
+</style>

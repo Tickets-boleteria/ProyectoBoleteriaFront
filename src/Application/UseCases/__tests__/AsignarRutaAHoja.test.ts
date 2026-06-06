@@ -22,11 +22,11 @@ describe('AsignarRutaAHoja', () => {
     } as any;
 
     mockRutaRepo = {
-      crear: vi.fn(),
-      obtenerPorId: vi.fn(),
-      actualizar: vi.fn(),
-      obtenerPorFrecuenciaYFecha: vi.fn(),
-      obtenerPorHojaRuta: vi.fn(),
+      crearRuta: vi.fn(),
+      buscarPorId: vi.fn(),
+      actualizarEstado: vi.fn(),
+      verificarBusDisponible: vi.fn(),
+      obtenerRutaActivaPorBus: vi.fn(),
     } as any;
 
     mockFrecuenciaRepo = {
@@ -54,7 +54,7 @@ describe('AsignarRutaAHoja', () => {
 
     mockHojaRutaRepo.obtenerPorFecha.mockResolvedValue([hojaRuta]);
     mockFrecuenciaRepo.obtenerPorId.mockResolvedValue(frecuenciaNueva);
-    mockRutaRepo.crear.mockResolvedValue({ id: 102 } as any);
+    mockRutaRepo.crearRuta.mockResolvedValue({ id: 102 } as any);
 
     const result = await useCase.ejecutar({
       busId: 50,
@@ -63,7 +63,7 @@ describe('AsignarRutaAHoja', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(mockRutaRepo.crear).toHaveBeenCalled();
+    expect(mockRutaRepo.crearRuta).toHaveBeenCalled();
   });
 
   it('debe fallar si la nueva ruta se solapa con una existente para el mismo bus', async () => {
@@ -109,7 +109,7 @@ describe('AsignarRutaAHoja', () => {
 
     mockHojaRutaRepo.obtenerPorFecha.mockResolvedValue([hojaRuta]);
     mockFrecuenciaRepo.obtenerPorId.mockResolvedValue(frecuenciaSolapadaEnTiempo);
-    mockRutaRepo.crear.mockResolvedValue({ id: 102 } as any);
+    mockRutaRepo.crearRuta.mockResolvedValue({ id: 102 } as any);
 
     const result = await useCase.ejecutar({
       busId: 50,
@@ -118,6 +118,7 @@ describe('AsignarRutaAHoja', () => {
     });
 
     expect(result.success).toBe(true);
+    expect(mockRutaRepo.crearRuta).toHaveBeenCalled();
   });
 
   it('debe crear una nueva hoja de ruta si no existe para esa fecha', async () => {

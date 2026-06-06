@@ -11,6 +11,7 @@ describe('ConfirmarCompra Use Case', () => {
 
   const mockBoletosRepo: IBoletosRepository = {
     insertarBoletos: vi.fn().mockResolvedValue([{ id: 1 }]),
+    verificarAsientoDisponible: vi.fn().mockResolvedValue(true),
   }
 
   const useCase = new ConfirmarCompra(mockVentaRepo, mockBoletosRepo)
@@ -25,7 +26,8 @@ describe('ConfirmarCompra Use Case', () => {
       apellidos: 'Perez',
       cedula: '1850000000',
       fechaNacimiento: '1990-01-01',
-      usuarioId: 'user-123'
+      usuarioId: 'user-123',
+      metodoPago: 'Transferencia'
     }
 
     const result = await useCase.ejecutar(input)
@@ -39,11 +41,11 @@ describe('ConfirmarCompra Use Case', () => {
       Total: 20
     }))
 
-    // Verificar inserción de boletos (Cédula y Estado Pendiente)
+    // Verificar inserción de boletos (Cédula y Estado Emitido)
     expect(mockBoletosRepo.insertarBoletos).toHaveBeenCalledWith(expect.arrayContaining([
       expect.objectContaining({
         CedulaPasajero: '1850000000',
-        Estado: 'Pendiente',
+        Estado: 'Emitido',
         VentaId: 123
       })
     ]))
@@ -58,6 +60,6 @@ describe('ConfirmarCompra Use Case', () => {
       capturaArchivo: new File([''], 'x.png')
     }
 
-    await expect(useCase.ejecutar(input)).rejects.toThrow('Cédula del pasajero requerida')
+    await expect(useCase.ejecutar(input)).rejects.toThrow('Cedula del pasajero requerida')
   })
 })

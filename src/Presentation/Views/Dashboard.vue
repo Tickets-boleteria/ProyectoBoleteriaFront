@@ -1,319 +1,162 @@
 <template>
-  <div class="space-y-6">
-    <section v-if="loading" class="rounded-2xl bg-white p-6 shadow-md border border-slate-100">
-      <p class="text-sm font-bold text-slate-500">
-        Cargando dashboard desde la base de datos...
+  <div class="space-y-8 animate-in">
+    <section v-if="loading" class="card-premium p-12 text-center">
+      <div class="inline-flex h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+      <p class="mt-4 text-sm font-black text-slate-400 uppercase tracking-widest">
+        Sincronizando operaciones...
       </p>
     </section>
 
-    <section v-else-if="error" class="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">
-      <p class="font-bold">No se pudo cargar el dashboard</p>
-      <p class="mt-1 text-sm">{{ error }}</p>
+    <section v-else-if="error" class="rounded-[2rem] border-2 border-rose-100 bg-rose-50 p-8 text-rose-700 text-center shadow-xl">
+      <p class="text-xl font-black">Error de Conexión</p>
+      <p class="mt-2 text-sm font-medium opacity-80">{{ error }}</p>
 
-      <button
-        @click="recargar"
-        class="mt-4 rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white"
-      >
-        Reintentar
+      <button @click="recargar" class="mt-6 btn-primary mx-auto bg-rose-600 hover:bg-rose-700 shadow-rose-200">
+        Reintentar Sincronización
       </button>
     </section>
 
     <template v-else>
-      <section class="rounded-[2rem] bg-blue-700 p-6 lg:p-8 text-white shadow-2xl">
-        <div class="flex items-center gap-2 mb-3">
-          <span class="h-2 w-2 rounded-full bg-emerald-300 animate-pulse"></span>
-          <span class="text-xs font-bold uppercase tracking-wider text-blue-100">
-            {{ saludoHora }}
-          </span>
+      <!-- Hero Header Premium -->
+      <section class="header-premium !p-10 lg:!p-12">
+        <div class="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full -mr-48 -mt-48 blur-3xl"></div>
+        <div class="relative z-10">
+          <div class="flex items-center gap-3 mb-4">
+            <span class="inline-flex px-3 py-1 rounded-full bg-emerald-400/20 text-emerald-300 text-[10px] font-black uppercase tracking-[0.2em] backdrop-blur-md border border-emerald-400/20">
+              <span class="mr-2 h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse mt-0.5"></span>
+              Sistema Operativo Online
+            </span>
+            <span class="text-xs font-bold text-blue-200">{{ saludoHora }}</span>
+          </div>
+
+          <h2 class="text-4xl lg:text-5xl font-black leading-tight text-white tracking-tighter">
+            Bienvenido, <span class="text-blue-400">{{ displayName }}</span>.
+          </h2>
+
+          <p class="text-slate-400 mt-4 max-w-2xl font-medium text-lg">
+            {{ rolMensaje }}
+          </p>
         </div>
-
-        <h2 class="text-3xl lg:text-4xl font-black leading-tight">
-          Hola, {{ displayName }}.
-        </h2>
-
-        <p class="text-blue-100 mt-2">
-          {{ rolMensaje }}
-        </p>
       </section>
 
-      <section v-if="resumen" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <!-- KPIs Premium -->
+      <section v-if="resumen" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <article
           v-for="kpi in resumen.kpis"
           :key="kpi.label"
-          class="rounded-2xl bg-white p-5 shadow-md border border-slate-100"
+          class="card-premium group hover:-translate-y-1 transition-all duration-300 !p-6"
         >
           <div class="flex items-start justify-between">
-            <p class="text-xs font-bold uppercase tracking-wider text-slate-400">
-              {{ kpi.label }}
-            </p>
-            <span class="text-2xl">{{ kpi.icon }}</span>
+            <div class="space-y-1">
+              <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                {{ kpi.label }}
+              </p>
+              <p class="text-3xl font-black text-slate-900 tracking-tight">
+                {{ kpi.value }}
+              </p>
+            </div>
+            <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-50 text-2xl group-hover:scale-110 transition-transform">{{ kpi.icon }}</span>
           </div>
 
-          <p class="mt-3 text-3xl font-black text-slate-900">
-            {{ kpi.value }}
-          </p>
-
-          <p v-if="kpi.hint" class="mt-1 text-xs text-slate-500">
-            {{ kpi.hint }}
-          </p>
-
-          <p
-            v-else-if="typeof kpi.delta === 'number'"
-            class="mt-1 text-xs font-bold"
-            :class="kpi.delta >= 0 ? 'text-emerald-600' : 'text-red-600'"
-          >
-            {{ kpi.delta >= 0 ? '▲' : '▼' }} {{ Math.abs(kpi.delta) }}%
-          </p>
+          <div class="mt-4 pt-4 border-t border-slate-50 flex items-center justify-between">
+            <p v-if="kpi.hint" class="text-[10px] font-bold text-slate-400 uppercase">
+              {{ kpi.hint }}
+            </p>
+            <div
+              v-else-if="typeof kpi.delta === 'number'"
+              class="flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-tighter"
+              :class="kpi.delta >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'"
+            >
+              <span>{{ kpi.delta >= 0 ? '▲' : '▼' }}</span>
+              {{ Math.abs(kpi.delta) }}%
+            </div>
+          </div>
         </article>
       </section>
 
+      <!-- Secciones Operativas -->
       <section v-if="esChofer" class="grid gap-6 lg:grid-cols-[1.4fr_0.8fr]">
-        <article class="rounded-2xl bg-white p-6 shadow-md border border-slate-100">
-          <h3 class="font-black text-slate-900 mb-1">
-            Viaje actual o próximo
-          </h3>
+        <article class="card-premium p-8">
+          <div class="flex justify-between items-start mb-8">
+            <div>
+              <h3 class="text-xl font-black text-slate-900">Itinerario Operativo</h3>
+              <p class="text-xs text-slate-400 font-bold uppercase mt-1">Próximo servicio asignado</p>
+            </div>
+            <span class="p-3 rounded-2xl bg-blue-50 text-blue-600 text-2xl">📅</span>
+          </div>
 
-          <p class="text-sm text-slate-500 mb-4">
-            Información operativa del viaje asignado.
-          </p>
-
-          <div v-if="proximoViaje" class="rounded-2xl bg-blue-50 border border-blue-200 p-5">
-            <p class="text-xs font-black uppercase tracking-wider text-blue-600">
-              {{ proximoViaje.fecha }} · {{ proximoViaje.hora || '--:--' }}
+          <div v-if="proximoViaje" class="rounded-3xl bg-slate-900 text-white p-8 shadow-2xl relative overflow-hidden">
+            <div class="absolute top-0 right-0 w-32 h-32 bg-blue-500/20 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+            
+            <p class="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400 mb-4">
+              {{ proximoViaje.fecha }} <span class="mx-2 opacity-30">|</span> {{ proximoViaje.hora || '--:--' }}
             </p>
 
-            <h4 class="mt-2 text-2xl font-black text-slate-900">
-              {{ proximoViaje.origen }} → {{ proximoViaje.destino }}
+            <h4 class="text-3xl font-black tracking-tighter">
+              {{ proximoViaje.origen }} <span class="text-slate-600">→</span> {{ proximoViaje.destino }}
             </h4>
 
-            <div class="mt-4 grid gap-3 sm:grid-cols-3">
-              <div class="rounded-xl bg-white p-4 border border-blue-100">
-                <p class="text-xs font-bold text-slate-400 uppercase">Bus</p>
-                <p class="font-black text-slate-900">
-                  {{ proximoViaje.bus || 'N/D' }}
-                </p>
+            <div class="mt-8 grid gap-4 sm:grid-cols-3">
+              <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+                <p class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Unidad</p>
+                <p class="font-black text-lg mt-1">{{ proximoViaje.bus || 'N/D' }}</p>
               </div>
 
-              <div class="rounded-xl bg-white p-4 border border-blue-100">
-                <p class="text-xs font-bold text-slate-400 uppercase">Placa</p>
-                <p class="font-black text-slate-900">
-                  {{ proximoViaje.placa || 'Sin placa' }}
-                </p>
+              <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+                <p class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Placa</p>
+                <p class="font-black text-lg mt-1">{{ proximoViaje.placa || '---' }}</p>
               </div>
 
-              <div class="rounded-xl bg-white p-4 border border-blue-100">
-                <p class="text-xs font-bold text-slate-400 uppercase">Estado</p>
-                <p class="font-black text-slate-900">
-                  {{ proximoViaje.estado || 'Programado' }}
-                </p>
+              <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+                <p class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Estado</p>
+                <p class="font-black text-lg mt-1 text-emerald-400">{{ proximoViaje.estado || 'OK' }}</p>
               </div>
             </div>
           </div>
 
-          <p v-else class="text-sm text-slate-500">
-            No tienes viaje asignado por el momento.
-          </p>
+          <div v-else class="py-16 text-center border-2 border-dashed border-slate-100 rounded-3xl">
+            <p class="text-slate-400 font-bold text-sm">Sin despachos próximos registrados.</p>
+          </div>
         </article>
 
-        <article class="rounded-2xl bg-white p-6 shadow-md border border-slate-100">
-          <h3 class="font-black text-slate-900 mb-1">
-            Control de abordaje
-          </h3>
-
-          <p class="text-sm text-slate-500 mb-4">
-            Escanea los boletos de los pasajeros al subir al bus.
-          </p>
-
-          <router-link
-            to="/abordaje"
-            class="block rounded-2xl bg-blue-600 px-5 py-4 text-center font-black text-white shadow-xl shadow-blue-100 hover:bg-blue-700"
-          >
-            📷 Escanear QR
-          </router-link>
-
-          <router-link
-            to="/venta"
-            class="mt-3 block rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 text-center font-black text-blue-700 hover:bg-blue-100"
-          >
-            💳 Venta en bus
-          </router-link>
-        </article>
-      </section>
-
-      <section v-if="esCooperativa" class="grid gap-6 lg:grid-cols-3">
-        <article class="lg:col-span-2 rounded-2xl bg-white p-6 shadow-md border border-slate-100">
-          <h3 class="font-black text-slate-900 mb-1">
-            Boletos vendidos esta semana
-          </h3>
-
-          <p class="text-sm text-slate-500 mb-4">
-            Ventas desde el lunes hasta la fecha actual.
-          </p>
-
-          <div class="flex items-end gap-3 h-48">
-            <div
-              v-for="dia in ventasSemana"
-              :key="dia.label"
-              class="flex-1 flex flex-col items-center gap-2"
-            >
-              <div class="text-xs font-bold text-slate-700">
-                {{ dia.value }}
-              </div>
-
-              <div class="w-full bg-blue-100 rounded-t-lg relative overflow-hidden" style="height:140px">
-                <div
-                  class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-blue-600 to-blue-400 transition-all"
-                  :style="{ height: ((dia.value / maxVenta) * 100) + '%' }"
-                ></div>
-              </div>
-
-              <div class="text-[10px] font-bold uppercase text-slate-400">
-                {{ dia.label }}
-              </div>
+        <article class="card-premium p-8 flex flex-col justify-center bg-slate-50/50">
+          <div class="text-center space-y-6">
+            <div class="inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-blue-600 text-white shadow-2xl shadow-blue-200 text-4xl">📷</div>
+            <div>
+              <h3 class="text-xl font-black text-slate-900">Control de Abordaje</h3>
+              <p class="text-sm text-slate-500 mt-2 font-medium">Valida los boletos de los pasajeros mediante escaneo QR en tiempo real.</p>
             </div>
-          </div>
-        </article>
-
-        <article class="rounded-2xl bg-white p-6 shadow-md border border-slate-100">
-          <h3 class="font-black text-slate-900 mb-1">
-            Rutas más vendidas
-          </h3>
-
-          <p class="text-sm text-slate-500 mb-4">
-            Demanda principal de la semana.
-          </p>
-
-          <div v-if="rutasTop.length" class="space-y-3">
-            <div v-for="ruta in rutasTop" :key="ruta.ruta">
-              <div class="flex justify-between text-sm mb-1">
-                <span class="font-bold text-slate-700">
-                  {{ ruta.ruta }}
-                </span>
-
-                <span class="text-slate-500">
-                  {{ ruta.boletos }}
-                </span>
-              </div>
-
-              <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                <div
-                  class="h-full bg-blue-600 rounded-full"
-                  :style="{ width: ((ruta.boletos / maxRutaTop) * 100) + '%' }"
-                ></div>
-              </div>
-            </div>
-          </div>
-
-          <p v-else class="text-sm text-slate-500">
-            Aún no hay ventas registradas esta semana.
-          </p>
-        </article>
-      </section>
-
-      <section v-if="esCliente" class="grid gap-6 lg:grid-cols-3">
-        <article class="lg:col-span-2 rounded-2xl bg-white p-6 shadow-md border border-slate-100">
-          <h3 class="font-black text-slate-900 mb-1">
-            Tus gastos en boletos
-          </h3>
-
-          <p class="text-sm text-slate-500 mb-4">
-            Resumen de los últimos 6 meses.
-          </p>
-
-          <div v-if="gastosMeses.length" class="flex items-end gap-3 h-48">
-            <div
-              v-for="mes in gastosMeses"
-              :key="mes.label"
-              class="flex-1 flex flex-col items-center gap-2"
-            >
-              <div class="text-xs font-bold text-slate-700">
-                ${{ mes.value.toFixed(2) }}
-              </div>
-
-              <div class="w-full bg-emerald-100 rounded-t-lg relative overflow-hidden" style="height:140px">
-                <div
-                  class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-emerald-600 to-emerald-400"
-                  :style="{ height: ((mes.value / maxGasto) * 100) + '%' }"
-                ></div>
-              </div>
-
-              <div class="text-[10px] font-bold uppercase text-slate-400">
-                {{ mes.label }}
-              </div>
-            </div>
-          </div>
-
-          <p v-else class="text-sm text-slate-500">
-            Todavía no tienes gastos registrados.
-          </p>
-        </article>
-
-        <article class="rounded-2xl bg-white p-6 shadow-md border border-slate-100">
-          <h3 class="font-black text-slate-900 mb-1">
-            Próximo viaje
-          </h3>
-
-          <p class="text-sm text-slate-500 mb-4">
-            Boleto activo más cercano.
-          </p>
-
-          <div v-if="proximoViaje" class="rounded-xl bg-blue-50 border border-blue-200 p-4">
-            <p class="text-xs font-bold uppercase text-blue-600 tracking-wider">
-              {{ proximoViaje.fecha }} · {{ proximoViaje.hora || '--:--' }}
-            </p>
-
-            <p class="text-lg font-black text-slate-900 mt-1">
-              {{ proximoViaje.origen }} → {{ proximoViaje.destino }}
-            </p>
-
-            <p class="text-sm text-slate-600 mt-1">
-              {{ proximoViaje.cooperativa || 'Cooperativa' }} · Asiento {{ proximoViaje.asiento || 'N/D' }}
-            </p>
-
-            <p class="mt-2 inline-flex rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700">
-              {{ proximoViaje.estado || 'Emitido' }}
-            </p>
-
-            <router-link
-              to="/mis-boletos"
-              class="mt-4 block rounded-xl bg-blue-600 px-4 py-3 text-center text-sm font-black text-white"
-            >
-              Ver boleto y QR
-            </router-link>
-          </div>
-
-          <div v-else class="text-sm text-slate-500">
-            No tienes viajes próximos.
-
-            <router-link to="/buscar" class="font-bold text-blue-700 underline">
-              Buscar ruta
+            <router-link to="/abordaje" class="btn-primary !py-4 w-full text-base">
+              Iniciar Escáner
             </router-link>
           </div>
         </article>
       </section>
 
-      <section class="rounded-2xl bg-white p-6 shadow-md border border-slate-100">
-        <h3 class="font-black text-slate-900 mb-4">
-          Accesos rápidos
+      <!-- Quick Access Premium -->
+      <section class="card-premium p-8">
+        <h3 class="text-lg font-black text-slate-900 mb-6 flex items-center gap-2">
+          <span class="p-2 rounded-xl bg-slate-100">⚡</span>
+          Accesos Directos
         </h3>
 
-        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <router-link
             v-for="accion in accesosRapidos"
             :key="accion.to"
             :to="accion.to"
-            class="rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all p-4 flex items-center gap-3"
+            class="group rounded-2xl border-2 border-slate-50 hover:border-blue-500 hover:bg-blue-50/50 transition-all p-5 flex items-center gap-4 shadow-sm"
           >
-            <span class="text-2xl">
+            <span class="text-3xl group-hover:scale-110 transition-transform">
               {{ accion.icon }}
             </span>
 
             <div>
-              <p class="font-bold text-slate-900 text-sm">
+              <p class="font-black text-slate-900 text-sm tracking-tight leading-none">
                 {{ accion.label }}
               </p>
 
-              <p class="text-xs text-slate-500">
+              <p class="text-[10px] font-bold text-slate-400 uppercase mt-1 tracking-tighter">
                 {{ accion.desc }}
               </p>
             </div>
@@ -323,6 +166,11 @@
     </template>
   </div>
 </template>
+
+<style scoped>
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.animate-in { animation: fadeIn 0.6s ease-out; }
+</style>
 
 <script setup lang="ts">
 import { computed } from 'vue'

@@ -6,7 +6,7 @@
 import { ref } from 'vue';
 import { HabilitarRutaDiaria, HabilitarRutaInput } from '../../Application/UseCases/HabilitarRutaDiaria';
 import { SupabaseRutaRepository } from '../../Infrastructure/Repositories/SupabaseRutaRepository';
-import { SupabaseBusRepository } from '../../Infrastructure/SupabaseBusRepository';
+import { SupabaseBusRepository } from '../../Infrastructure/Repositories/SupabaseBusRepository';
 import { SupabaseFrecuenciaRepository } from '../../Infrastructure/Repositories/SupabaseFrecuenciaRepository';
 import { Ruta } from '../../Domain/Entities/Ruta';
 

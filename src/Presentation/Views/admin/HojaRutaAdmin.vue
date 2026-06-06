@@ -18,11 +18,13 @@ const {
   hojasRuta,
   loading,
   error,
+  reporteGeneracion,
   cargarPorFecha,
   agregarTrayecto,
   iniciarRuta,
   finalizarRuta,
   toggleTipoRuta,
+  generarAuto,
 } = useHojaRuta()
 
 // Paginación
@@ -88,119 +90,174 @@ const estadoBadge = (e: string) => ({
   Cerrada:   'bg-emerald-100 text-emerald-700 border-emerald-200',
 }[e] || 'bg-slate-100 text-slate-700')
 
+const handleGenerarAuto = async () => {
+  const confirm = await uiStore.showConfirm({
+    title: 'Generación Automática',
+    message: `¿Deseas generar automáticamente la hoja de ruta para el ${fechaFiltro.value}? El sistema asignará buses disponibles a las frecuencias activas.`,
+    type: 'info'
+  })
+
+  if (confirm) {
+    const success = await generarAuto(fechaFiltro.value)
+    if (success && reporteGeneracion.value) {
+      uiStore.showAlert({
+        title: 'Generación Completada',
+        message: `Se crearon ${reporteGeneracion.value.rutasCreadas} rutas. Frecuencias sin bus: ${reporteGeneracion.value.frecuenciasSinBus}. Buses de parada: ${reporteGeneracion.value.busesDeParada}.`,
+        type: 'success'
+      })
+    }
+  }
+}
+
+const mostrarAsignarModal = ref(false)
+
 cargar()
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h2 class="text-2xl font-black text-slate-900">Hoja de ruta</h2>
-        <p class="text-slate-500 text-sm">Programación operativa diaria: asignación de buses a frecuencias.</p>
+  <div class="space-y-8 animate-in">
+    <!-- Encabezado Premium -->
+    <header class="header-premium">
+      <div class="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full -mr-32 -mt-32 blur-3xl"></div>
+      <div class="relative z-10 flex flex-wrap items-center justify-between gap-6">
+        <div>
+          <h1 class="text-3xl md:text-4xl font-black tracking-tight text-white">Despacho y Programación</h1>
+          <p class="mt-2 text-slate-400 font-medium">Gestión de itinerarios diarios y asignación de flota.</p>
+        </div>
+        <div class="flex gap-3">
+          <button @click="mostrarAsignarModal = true" class="px-6 py-3 rounded-2xl bg-white/10 text-white font-black text-sm hover:bg-white/20 transition-all backdrop-blur-md border border-white/10">
+            Manual
+          </button>
+          <button @click="handleGenerarAuto" :disabled="loading" class="btn-primary !bg-blue-500 hover:bg-blue-400 shadow-blue-900/20">
+            <span class="text-xl">⚡</span>
+            <span>Auto-Generar</span>
+          </button>
+        </div>
       </div>
-    </div>
+    </header>
 
-    <!-- Filtros + acciones -->
-    <section class="rounded-2xl bg-white p-5 shadow-md border border-slate-100 flex flex-wrap items-end gap-3">
-      <div class="rounded-2xl bg-slate-50 p-3 border border-slate-100">
-        <label class="block text-[10px] font-black uppercase text-slate-400 mb-1">Fecha operativa</label>
-        <input v-model="fechaFiltro" type="date" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold outline-none focus:ring-4 focus:ring-blue-100 transition-all"/>
+    <!-- Filtros Premium -->
+    <section class="card-premium p-6 flex flex-wrap items-center gap-6 bg-white/80 backdrop-blur-sm">
+      <div class="flex-1 min-w-[240px]">
+        <label class="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Fecha de Operación</label>
+        <div class="relative">
+          <span class="absolute left-4 top-1/2 -translate-y-1/2">📅</span>
+          <input v-model="fechaFiltro" type="date" class="input-premium !pl-12 !py-3"/>
+        </div>
       </div>
-      <button @click="cargar" class="rounded-2xl bg-slate-900 px-6 py-3.5 font-black text-white shadow-xl shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95">
+      <button @click="cargar" class="btn-primary !bg-slate-900 hover:bg-slate-800 !px-10">
         Consultar Plan
       </button>
     </section>
 
-    <!-- Asignación de Trayecto -->
-    <section class="rounded-[2rem] border border-white/70 bg-white/90 p-8 shadow-2xl backdrop-blur-xl border border-slate-100">
-      <h3 class="text-lg font-black text-slate-900 mb-6 flex items-center gap-3">
-        <span class="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-100">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-        </span>
-        Asignar Nuevo Trayecto
-      </h3>
-      <form @submit.prevent="asignarNuevoTrayecto" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        <div class="space-y-1.5">
-          <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Frecuencia (ID)</label>
-          <input v-model.number="form.frecuenciaId" type="number" required placeholder="Ej: 1" class="w-full rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-4 text-sm font-bold focus:bg-white focus:ring-4 focus:ring-blue-100 outline-none transition-all"/>
-        </div>
-        <div class="space-y-1.5">
-          <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Bus (ID)</label>
-          <input v-model.number="form.busId" type="number" required placeholder="Ej: 50" class="w-full rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-4 text-sm font-bold focus:bg-white focus:ring-4 focus:ring-blue-100 outline-none transition-all"/>
-        </div>
-        <div class="flex items-end">
-          <button type="submit" :disabled="loading" class="w-full rounded-2xl bg-blue-600 px-6 py-4 font-black text-white shadow-xl shadow-blue-100 hover:bg-blue-700 disabled:bg-slate-300 transition-all active:scale-95">
-            {{ loading ? 'Procesando...' : 'Vincular Unidad' }}
-          </button>
-        </div>
-      </form>
-    </section>
-
-    <div v-if="error" class="rounded-2xl border-l-4 border-red-500 bg-red-50 p-5 shadow-md flex items-center gap-4">
-      <div class="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0 text-xl">⚠️</div>
-      <p class="text-sm font-black text-red-700 leading-tight">{{ error }}</p>
+    <div v-if="error" class="rounded-2xl border-l-4 border-rose-500 bg-rose-50 p-5 shadow-md flex items-center gap-4">
+      <div class="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center flex-shrink-0">!</div>
+      <p class="text-sm font-black text-rose-700">{{ error }}</p>
     </div>
 
-    <!-- Visualización de Hojas de Ruta -->
-    <div v-if="pagedHojas.length" class="space-y-10">
-      <div v-for="hoja in pagedHojas" :key="hoja.id" class="space-y-5 animate-in slide-in-from-bottom duration-500">
-        <div class="flex items-center justify-between px-3">
-          <div class="flex items-center gap-4">
-            <h3 class="text-2xl font-black text-slate-900 tracking-tight">Hoja de Ruta #{{ hoja.id }}</h3>
-            <span :class="estadoBadge(hoja.estado)" class="px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border shadow-sm">
-              {{ hoja.estado }}
-            </span>
+    <!-- Listado de Hojas -->
+    <div v-if="loading" class="card-premium p-20 text-center">
+      <div class="inline-flex h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+      <p class="mt-4 text-xs font-black text-slate-400 uppercase tracking-widest">Sincronizando operaciones...</p>
+    </div>
+
+    <div v-else class="space-y-10">
+      <div v-for="hoja in pagedHojas" :key="hoja.id" class="animate-in">
+        <div class="card-premium overflow-hidden">
+          <div class="p-8 border-b border-slate-50 flex flex-wrap items-center justify-between gap-6 bg-slate-50/30">
+            <div class="flex items-center gap-6">
+              <div class="bg-white px-6 py-3 rounded-3xl border border-slate-100 shadow-sm text-center">
+                <p class="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Hoja de Ruta</p>
+                <p class="text-xl font-black text-slate-900">#{{ hoja.id }}</p>
+              </div>
+              <div>
+                <span class="inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border"
+                  :class="estadoBadge(hoja.state || hoja.estado)">
+                  {{ hoja.state || hoja.estado }}
+                </span>
+                <p class="text-[10px] font-bold text-slate-400 uppercase mt-2">
+                  Generación: {{ hoja.tipoGeneracion === 'Manual' ? '📝 Manual' : '🤖 Automática' }}
+                </p>
+              </div>
+            </div>
+            
+            <div class="flex gap-3">
+              <button v-if="hoja.estado === 'Borrador'" @click="handleIniciar(hoja.id!)" 
+                class="px-6 py-3 rounded-2xl bg-emerald-600 text-white font-black text-xs uppercase shadow-lg shadow-emerald-900/20 hover:bg-emerald-500 transition-all">
+                PUBLICAR PLAN
+              </button>
+              <button v-if="hoja.estado === 'Publicada'" @click="handleFinalizar(hoja.id!)" 
+                class="px-6 py-3 rounded-2xl bg-slate-900 text-white font-black text-xs uppercase shadow-lg hover:bg-slate-800 transition-all">
+                CERRAR DESPACHOS
+              </button>
+            </div>
           </div>
-          <div class="flex gap-3">
-            <button v-if="hoja.estado === 'Borrador'" @click="handleIniciar(hoja.id!)" class="px-6 py-2.5 rounded-2xl bg-emerald-600 text-white text-[11px] font-black uppercase shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all active:scale-95">INICIAR OPERACIÓN</button>
-            <button v-if="hoja.estado === 'Publicada'" @click="handleFinalizar(hoja.id!)" class="px-6 py-2.5 rounded-2xl bg-blue-600 text-white text-[11px] font-black uppercase shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95">CERRAR HOJA</button>
+
+          <div class="p-8">
+            <TripList 
+              :rutas="hoja.rutas || []" 
+              @toggle-directo="(r) => toggleTipoRuta(r, fechaFiltro)"
+            />
           </div>
         </div>
+      </div>
 
-        <TripList 
-          :rutas="hoja.rutas || []" 
-          @toggle-directo="(r) => toggleTipoRuta(r, fechaFiltro)"
-        />
+      <div v-if="hojasRuta.length === 0" class="card-premium p-24 text-center opacity-40">
+        <p class="text-5xl mb-4">📭</p>
+        <p class="font-black text-slate-400 uppercase tracking-widest text-xs">Sin planificación registrada</p>
       </div>
 
       <PaginationControls
         v-if="totalItems > itemsPerPage"
-        :current-page="currentPage"
-        :total-pages="totalPages"
-        :total-items="totalItems"
-        :items-per-page="itemsPerPage"
-        :has-prev-page="currentPage > 1"
-        :has-next-page="currentPage < totalPages"
-        @prev="handlePrevPage"
-        @next="handleNextPage"
-        @set-page="handleSetPage"
+        :current-page="currentPage" :total-pages="totalPages" :total-items="totalItems" :items-per-page="itemsPerPage"
+        :has-prev-page="currentPage > 1" :has-next-page="currentPage < totalPages"
+        @prev="handlePrevPage" @next="handleNextPage" @set-page="handleSetPage"
       />
     </div>
-    
-    <div v-else-if="!loading" class="text-center py-24 bg-white rounded-[3rem] border-2 border-dashed border-slate-100 shadow-inner">
-      <div class="max-w-xs mx-auto space-y-5">
-        <div class="w-24 h-24 bg-slate-50 rounded-[2rem] flex items-center justify-center mx-auto text-slate-200">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-          </svg>
+
+    <!-- Modal Asignar Trayecto -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="mostrarAsignarModal" class="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <div class="absolute inset-0 bg-slate-950/40 backdrop-blur-md" @click="mostrarAsignarModal = false"></div>
+          <div class="relative w-full max-w-2xl bg-white rounded-[3rem] shadow-2xl overflow-hidden">
+            <div class="bg-slate-900 p-8 text-white">
+              <h3 class="text-2xl font-black tracking-tight">Asignación Manual</h3>
+              <p class="text-slate-400 text-xs mt-1 font-medium">Vincula una unidad de transporte a una frecuencia específica para el día de hoy.</p>
+            </div>
+            
+            <form @submit.prevent="asignarNuevoTrayecto" class="p-8 space-y-6">
+              <div class="grid gap-6 sm:grid-cols-2">
+                <div class="space-y-1.5">
+                  <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">ID Frecuencia *</label>
+                  <input v-model.number="form.frecuenciaId" type="number" required placeholder="Ej: 1" class="input-premium" />
+                </div>
+                <div class="space-y-1.5">
+                  <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">ID Bus *</label>
+                  <input v-model.number="form.busId" type="number" required placeholder="Ej: 50" class="input-premium" />
+                </div>
+              </div>
+
+              <div class="flex gap-3 pt-6 border-t border-slate-50">
+                <button type="submit" :disabled="loading" class="btn-primary flex-1">
+                  {{ loading ? 'Asignando...' : '✓ Confirmar Vinculación' }}
+                </button>
+                <button type="button" @click="mostrarAsignarModal = false" class="px-8 py-3 rounded-2xl bg-slate-50 font-black text-slate-400 hover:bg-slate-100 transition-all">
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-        <div>
-          <p class="text-slate-900 font-black text-xl">Sin programación activa</p>
-          <p class="text-sm text-slate-400 font-medium mt-1 leading-relaxed px-4">Asigne el primer trayecto para generar automáticamente la hoja del día.</p>
-        </div>
-      </div>
-    </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
-@keyframes slide-up {
-  from { transform: translateY(20px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-.animate-in {
-  animation: slide-up 0.4s ease-out;
-}
+.modal-enter-active, .modal-leave-active { transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+.modal-enter-from { opacity: 0; filter: blur(4px); transform: scale(0.95); }
+.modal-leave-to { opacity: 0; transform: scale(1.02); }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.animate-in { animation: fadeIn 0.5s ease-out; }
 </style>

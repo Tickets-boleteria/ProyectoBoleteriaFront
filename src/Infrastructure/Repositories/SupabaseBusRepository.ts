@@ -290,6 +290,21 @@ export class SupabaseBusRepository implements IBusRepository {
 		return this.mapearBus(data);
 	}
 
+	async reactivarBus(busId: number, _reactivadoPor: string): Promise<Bus> {
+		const { data, error } = await supabase
+			.from(this.tabla)
+			.update({ Estado: "Activo" })
+			.eq("Id", busId)
+			.select()
+			.single();
+
+		if (error) {
+			throw new DomainException(`Error al reactivar bus: ${error.message}`);
+		}
+
+		return this.mapearBus(data);
+	}
+
 	async obtenerRutasAfectadas(busId: number): Promise<number> {
 		const { count, error } = await supabase
 			.from("Rutas")

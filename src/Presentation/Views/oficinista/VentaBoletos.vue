@@ -481,14 +481,14 @@ onMounted(cargarRutas)
               <div class="grid gap-6 sm:grid-cols-2">
                 <div class="space-y-1.5">
                   <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Destino de Entrega</label>
-                  <select v-model="paradaDestinoId" class="w-full rounded-2xl border border-slate-200 p-4 font-bold text-sm outline-none focus:ring-4 focus:ring-emerald-100 transition-all">
+                  <select v-model="paradaDestinoId" class="select-premium">
                     <option :value="null">{{ rutaSeleccionada.destino }} (Terminal Final)</option>
                     <option v-for="p in paradas" :key="p.id" :value="p.id" :disabled="rutaSeleccionada.esDirecto || !p.permiteVenta">{{ p.ciudad }}</option>
                   </select>
                 </div>
                 <div class="space-y-1.5">
                   <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Asiento Asignado</label>
-                  <select v-model="asientoSeleccionadoId" class="w-full rounded-2xl border border-slate-200 p-4 font-bold text-sm outline-none focus:ring-4 focus:ring-emerald-100 transition-all">
+                  <select v-model="asientoSeleccionadoId" class="select-premium">
                     <option :value="null">Seleccione Asiento</option>
                     <option v-for="a in asientos" :key="a.Id" :value="a.Id">Asiento {{ a.NumeroAsiento }} (${{ a.precioBase.toFixed(2) }})</option>
                   </select>
@@ -512,7 +512,7 @@ onMounted(cargarRutas)
                   <span class="text-xs font-black text-slate-600 uppercase tracking-wider">Aplica Discapacidad</span>
                 </label>
 
-                <select v-model="pasajero.metodoPago" class="rounded-2xl border border-slate-200 p-4 font-black text-sm outline-none focus:ring-4 focus:ring-blue-100 transition-all">
+                <select v-model="pasajero.metodoPago" class="select-premium">
                   <option value="Efectivo">💵 Efectivo</option>
                   <option value="Transferencia">🏦 Transferencia</option>
                   <option value="Tarjeta">💳 Tarjeta (Stripe)</option>

@@ -1,9 +1,9 @@
 import { ref } from 'vue';
 import { AsignarBusAFrecuencia } from '../../Application/UseCases/AsignarBusAFrecuencia';
 import { SupabaseRutaRepository } from '../../Infrastructure/Repositories/SupabaseRutaRepository';
-import { SupabaseBusRepository } from '../../Infrastructure/SupabaseBusRepository';
+import { SupabaseBusRepository } from '../../Infrastructure/Repositories/SupabaseBusRepository';
 import { SupabaseFrecuenciaRepository } from '../../Infrastructure/Repositories/SupabaseFrecuenciaRepository';
-import { SupabaseAuditRepository } from '../../Infrastructure/SupabaseAuditRepository';
+import { SupabaseAuditRepository } from '../../Infrastructure/Repositories/SupabaseAuditRepository';
 
 const rutaRepo = new SupabaseRutaRepository();
 const busRepo = new SupabaseBusRepository();

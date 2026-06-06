@@ -1,14 +1,92 @@
 import { Frecuencia } from '../../Domain/Entities/Frecuencia';
-import { CrearHojaRutaManualDto, GenerarHojasRutaAutomaticasDto, HojaRuta } from '../../Domain/Entities/HojaRuta';
+import { HojaRuta, GenerarHojasRutaAutomaticasDto } from '../../Domain/Entities/HojaRuta';
 import { DomainException } from '../../Domain/Exceptions/DomainException';
 import { IFrecuenciaRepository } from '../../Domain/Repositories/IFrecuenciaRepository';
 import { IHojaRutaRepository } from '../../Domain/Repositories/IHojaRutaRepository';
+import { IBusRepository } from '../../Domain/Repositories/IBusRepository';
+import { IRutaRepository } from '../../Domain/Repositories/IRutaRepository';
+
+export interface ReporteGeneracion {
+  rutasCreadas: number;
+  frecuenciasSinBus: number;
+  busesDeParada: number;
+}
 
 export class GestionarHojaRuta {
   constructor(
     private hojaRutaRepository: IHojaRutaRepository,
-    private frecuenciaRepository: IFrecuenciaRepository
+    private frecuenciaRepository: IFrecuenciaRepository,
+    private busRepository: IBusRepository,
+    private rutaRepository: IRutaRepository
   ) {}
+
+  async generarAutomaticamente(
+    dto: GenerarHojasRutaAutomaticasDto, 
+    cooperativaId: number, 
+    usuarioId: string
+  ): Promise<{ hoja: HojaRuta; reporte: ReporteGeneracion }> {
+    this.validarFecha(dto.fechaSalida);
+
+    // 1. Obtener frecuencias activas de la cooperativa
+    const todasFrecuencias = await this.frecuenciaRepository.obtenerTodas();
+    const frecuenciasActivas = todasFrecuencias
+      .filter(f => f.cooperativaId === cooperativaId && f.activo)
+      .sort((a, b) => a.horaSalida.localeCompare(b.horaSalida));
+
+    if (frecuenciasActivas.length === 0) {
+      throw new DomainException('No hay frecuencias activas para generar la hoja de ruta.');
+    }
+
+    // 2. Obtener buses activos de la cooperativa
+    const todosBuses = await this.busRepository.obtenerPorCooperativa(cooperativaId);
+    const busesDisponibles = [];
+
+    for (const bus of todosBuses) {
+      if (bus.estado === 'Activo') {
+        const disponible = await this.rutaRepository.verificarBusDisponible(bus.id!, dto.fechaSalida);
+        if (disponible) {
+          busesDisponibles.push(bus);
+        }
+      }
+    }
+
+    // 3. Crear la Hoja de Ruta
+    const hoja = await this.hojaRutaRepository.crear({
+      fecha: dto.fechaSalida,
+      usuarioCreadorId: usuarioId,
+      estado: 'Publicada',
+      tipoGeneracion: 'Automatica',
+      rutas: []
+    });
+
+    // 4. Algoritmo de asignación (Secuencial)
+    let rutasCreadas = 0;
+    const numAsignaciones = Math.min(frecuenciasActivas.length, busesDisponibles.length);
+
+    for (let i = 0; i < numAsignaciones; i++) {
+      const frecuencia = frecuenciasActivas[i];
+      const bus = busesDisponibles[i];
+
+      await this.rutaRepository.crearRuta({
+        frecuenciaId: frecuencia.id,
+        busId: bus.id!,
+        fecha: dto.fechaSalida,
+        estado: 'Habilitada',
+        hojaRutaId: hoja.id,
+        esDirecta: frecuencia.esDirecto
+      } as any);
+      rutasCreadas++;
+    }
+
+    return {
+      hoja,
+      reporte: {
+        rutasCreadas,
+        frecuenciasSinBus: Math.max(0, frecuenciasActivas.length - busesDisponibles.length),
+        busesDeParada: Math.max(0, busesDisponibles.length - frecuenciasActivas.length)
+      }
+    };
+  }
 
   async listarPorFecha(fecha: string): Promise<HojaRuta[]> {
     this.validarFecha(fecha);

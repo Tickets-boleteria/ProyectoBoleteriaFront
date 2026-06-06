@@ -4,6 +4,7 @@ import { useRutas } from '../../Composables/useRutas'
 import { useUiStore } from '../../Store/uiStore'
 import { EstadoRuta, getEstadoRutaLabel } from '../../../Domain/Constants/EstadosSistema'
 import PaginationControls from '../../Components/PaginationControls.vue'
+import PremiumSelect from '../../Components/PremiumSelect.vue'
 
 const uiStore = useUiStore()
 const {
@@ -28,16 +29,19 @@ const {
   finalizarRuta,
 } = useRutas()
 
+// Estados para modales
+const mostrarCrearModal = ref(false)
+
 // Paginación
 const currentPage = ref(1)
-const itemsPerPage = 8
+const itemsPerPage = ref(8)
 const totalItems = computed(() => rutasFiltradas.value.length)
-const totalPages = computed(() => Math.ceil(totalItems.value / itemsPerPage))
+const totalPages = computed(() => Math.ceil(totalItems.value / itemsPerPage.value))
 
 const pagedRutas = computed(() => {
-  const start = (currentPage.value - 1) * itemsPerPage
-  const end = start + itemsPerPage
-  return rutasFiltradas.value.slice(start, end)
+  const start = (currentPage.value - 1) * itemsPerPage.value
+  const end = start + itemsPerPage.value
+  return (rutasFiltradas.value || []).slice(start, end)
 })
 
 watch([filtroEstado, filtroFecha, filtroTexto], () => {
@@ -47,6 +51,36 @@ watch([filtroEstado, filtroFecha, filtroTexto], () => {
 const handlePrevPage = () => { if (currentPage.value > 1) currentPage.value-- }
 const handleNextPage = () => { if (currentPage.value < totalPages.value) currentPage.value++ }
 const handleSetPage = (p: number) => { currentPage.value = p }
+
+const opcionesEstado = computed(() => [
+  { label: 'Todos los Estados', value: 'Todas' },
+  ...ESTADOS_RUTA.map(e => ({ label: getEstadoRutaLabel(e), value: e }))
+])
+
+const opcionesFrecuencia = computed(() => 
+  (frecuencias.value || []).map(f => ({
+    label: `${f.CiudadOrigen} → ${f.CiudadDestino}`,
+    value: f.Id,
+    description: `Salida: ${f.HoraSalida}`
+  }))
+)
+
+const opcionesBus = computed(() => 
+  (busesDisponibles.value || []).map(b => ({
+    label: `Disco ${b.Numero}`,
+    value: b.Id,
+    description: `Placa: ${b.Placa} · ${b.TotalAsientos} Asientos`,
+    icon: b.Estructura === 'DosPisos' ? '🚍' : '🚌'
+  }))
+)
+
+const opcionesChofer = computed(() => 
+  (choferes.value || []).map(c => ({
+    label: `${c.Nombres} ${c.Apellidos}`,
+    value: c.Cedula,
+    description: `Cédula: ${c.Cedula}`
+  }))
+)
 
 const fechaHoy = new Date().toISOString().split('T')[0];
 
@@ -136,6 +170,18 @@ async function handleAbrirVenta(ruta: any) {
   if (confirm) await cambiarEstadoRuta(ruta, 'Habilitada')
 }
 
+function abrirCrearModal() {
+  resetNuevaRuta()
+  mostrarCrearModal.value = true
+}
+
+function resetNuevaRuta() {
+  nuevaRuta.value.frecuenciaId = ''
+  nuevaRuta.value.busId = ''
+  nuevaRuta.value.fecha = fechaHoy
+  nuevaRuta.value.choferId = ''
+}
+
 async function handleRegistrar() {
   if (!nuevaRuta.value.frecuenciaId || !nuevaRuta.value.busId || !nuevaRuta.value.fecha) {
     uiStore.showAlert({ title: 'Validación', message: 'Selecciona frecuencia, bus y fecha.', type: 'warning' })
@@ -144,145 +190,208 @@ async function handleRegistrar() {
   await registrarRuta()
   if (!error.value) {
     uiStore.showAlert({ title: 'Ruta Creada', message: 'El trayecto ha sido programado correctamente.', type: 'success' })
+    mostrarCrearModal.value = false
   }
 }
 </script>
 
 <template>
   <div class="space-y-6">
-    <section class="rounded-[2rem] bg-slate-800 text-white shadow-2xl p-6 md:p-8">
-      <h1 class="text-2xl md:text-3xl font-black">Control de rutas</h1>
-      <p class="mt-2 text-sm text-slate-300">Administra las rutas operativas y el flujo de los buses.</p>
-    </section>
-
-    <!-- Resumen de Estados -->
-    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      <button
-        v-for="item in resumenEstados" :key="item.estado"
-        @click="filtroEstado = item.estado"
-        class="rounded-2xl border p-5 text-left transition-all active:scale-95"
-        :class="filtroEstado === item.estado ? 'border-blue-500 bg-blue-50 shadow-lg shadow-blue-100' : 'border-slate-200 bg-white hover:border-blue-300'"
-      >
-        <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">{{ getEstadoRutaLabel(item.estado) }}</p>
-        <p class="mt-2 text-3xl font-black text-slate-900">{{ item.total }}</p>
-      </button>
-    </section>
-
-    <!-- Formulario Crear -->
-    <section class="rounded-2xl bg-white p-6 shadow-md border border-slate-100">
-      <h2 class="text-sm font-black uppercase tracking-wider text-slate-700 mb-5">Programar Nuevo Viaje</h2>
-      <form @submit.prevent="handleRegistrar" class="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div v-if="error" class="md:col-span-5 rounded-xl bg-red-50 border border-red-200 p-4 text-sm font-bold text-red-700">{{ error }}</div>
-        
-        <div class="space-y-1">
-          <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Frecuencia</label>
-          <select v-model="nuevaRuta.frecuenciaId" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold focus:ring-4 focus:ring-blue-100 outline-none transition-all" required>
-            <option value="">Seleccione</option>
-            <option v-for="f in frecuencias" :key="f.Id" :value="f.Id">{{ f.CiudadOrigen }} → {{ f.CiudadDestino }} ({{ f.HoraSalida }})</option>
-          </select>
-        </div>
-
-        <div class="space-y-1">
-          <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Fecha</label>
-          <input v-model="nuevaRuta.fecha" type="date" :min="fechaHoy" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold focus:ring-4 focus:ring-blue-100 outline-none transition-all" :class="{'border-red-500 bg-red-50': !isDiaValido}" required />
-        </div>
-
-        <div class="space-y-1">
-          <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Bus Disponible</label>
-          <select v-model="nuevaRuta.busId" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold focus:ring-4 focus:ring-blue-100 outline-none transition-all" :disabled="!isDiaValido" required>
-            <option value="">Seleccione</option>
-            <option v-for="bus in busesDisponibles" :key="bus.Id" :value="bus.Id">Unidad {{ bus.Numero }} ({{ bus.Placa }})</option>
-          </select>
-        </div>
-
-        <div class="space-y-1">
-          <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Chofer</label>
-          <select v-model="nuevaRuta.choferId" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold focus:ring-4 focus:ring-blue-100 outline-none transition-all" :disabled="!isDiaValido">
-            <option value="">Sin asignar</option>
-            <option v-for="c in choferes" :key="c.Cedula" :value="c.Cedula">{{ c.Nombres }} {{ c.Apellidos }}</option>
-          </select>
-        </div>
-
-        <div class="flex items-end">
-          <button type="submit" :disabled="loading || !isDiaValido" class="w-full rounded-xl bg-blue-600 px-4 py-3.5 text-sm font-black text-white hover:bg-blue-700 shadow-lg shadow-blue-100 disabled:bg-slate-200 transition-all active:scale-95">
-            {{ loading ? '...' : 'Programar' }}
-          </button>
-        </div>
-      </form>
-    </section>
-
-    <!-- Tabla Listado -->
-    <section class="rounded-2xl bg-white shadow-md border border-slate-100 overflow-hidden">
-      <div class="p-6 border-b border-slate-100 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+    <!-- Encabezado Premium -->
+    <header class="header-premium">
+      <div class="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full -mr-32 -mt-32 blur-3xl"></div>
+      <div class="relative z-10 flex flex-wrap items-center justify-between gap-6">
         <div>
-          <h2 class="text-sm font-black uppercase tracking-wider text-slate-700">Rutas Registradas</h2>
-          <p class="text-xs text-slate-400 mt-1 font-bold">Total: {{ totalItems }} registros filtrados</p>
+          <h1 class="text-3xl md:text-4xl font-black tracking-tight text-white">Control de Operaciones</h1>
+          <p class="mt-2 text-slate-400 font-medium">Programación diaria y despacho de unidades en tiempo real.</p>
         </div>
-        <div class="flex flex-wrap gap-3">
-          <input v-model="filtroFecha" type="date" class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold outline-none focus:ring-4 focus:ring-blue-50" />
-          <input v-model="filtroTexto" type="text" placeholder="Buscar bus o destino..." class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold outline-none focus:ring-4 focus:ring-blue-50" />
+        <button @click="abrirCrearModal" class="btn-primary">
+          <span class="text-2xl">+</span>
+          <span>Programar Viaje</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Tabla Listado Premium -->
+    <section class="card-premium">
+      <div class="p-6 border-b border-slate-50 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-slate-50/30">
+        <div>
+          <h2 class="text-sm font-black uppercase tracking-widest text-slate-400">Despachos Registrados</h2>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <!-- Filtro de Estado -->
+          <PremiumSelect
+            v-model="filtroEstado"
+            :options="opcionesEstado"
+            container-class="w-48"
+          />
+
+          <input v-model="filtroFecha" type="date" class="rounded-xl border border-slate-200 px-4 py-3 text-xs font-bold outline-none focus:ring-4 focus:ring-blue-100 transition-all" />
+          <div class="relative">
+            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 text-xs">🔍</span>
+            <input v-model="filtroTexto" type="text" placeholder="Buscar unidad o destino..." 
+              class="rounded-xl border border-slate-200 pl-9 pr-4 py-2 text-xs font-bold outline-none focus:ring-4 focus:ring-blue-100 transition-all w-64" />
+          </div>
         </div>
       </div>
 
       <div class="overflow-x-auto">
-        <table class="min-w-full text-sm">
-          <thead class="bg-slate-50 border-b border-slate-100 text-[10px] uppercase font-black text-slate-400 tracking-widest">
-            <tr>
-              <th class="py-4 px-6 text-left">Ruta / Trayecto</th>
-              <th class="py-4 px-6 text-left">Unidad</th>
-              <th class="py-4 px-6 text-left">Estado</th>
-              <th class="py-4 px-6 text-right">Acciones</th>
+        <table class="w-full text-left">
+          <thead>
+            <tr class="bg-slate-50/50 text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100">
+              <th class="px-8 py-5">Ruta / Trayecto</th>
+              <th class="px-8 py-5">Unidad Asignada</th>
+              <th class="px-8 py-5 text-center">Estado Operativo</th>
+              <th class="px-8 py-5 text-right">Despacho</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr v-for="ruta in pagedRutas" :key="ruta.Id" class="hover:bg-slate-50/50 transition-colors">
-              <td class="py-4 px-6">
-                <div class="font-black text-slate-900">{{ ruta.Frecuencias?.CiudadOrigen }} → {{ ruta.Frecuencias?.CiudadDestino }}</div>
-                <div class="flex items-center gap-2 mt-1">
-                   <span class="text-[10px] font-bold text-blue-500 uppercase">{{ ruta.Frecuencias?.HoraSalida }}</span>
-                   <span v-if="ruta.ObservacionChofer?.includes('INCIDENTE')" class="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[9px] font-black uppercase">🚨 Incidente</span>
-                   <span v-if="ruta.ObservacionChofer?.includes('Transbordo')" class="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[9px] font-black uppercase">🔄 Transbordo</span>
+          <tbody class="divide-y divide-slate-50">
+            <tr v-for="ruta in pagedRutas" :key="ruta.Id" class="group hover:bg-slate-50/50 transition-colors">
+              <td class="px-8 py-6">
+                <div class="font-black text-slate-900 text-base leading-tight">
+                  {{ ruta.Frecuencias?.CiudadOrigen }} 
+                  <span class="text-slate-300 mx-1">→</span>
+                  {{ ruta.Frecuencias?.CiudadDestino }}
+                </div>
+                <div class="flex items-center gap-2 mt-2">
+                   <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-widest">{{ ruta.Frecuencias?.HoraSalida }}</span>
+                   <span v-if="ruta.ObservacionChofer?.includes('INCIDENTE')" class="px-2 py-0.5 rounded bg-rose-50 text-rose-600 text-[9px] font-black uppercase">🚨 Incidente</span>
+                   <span v-if="ruta.ObservacionChofer?.includes('Transbordo')" class="px-2 py-0.5 rounded bg-amber-50 text-amber-600 text-[9px] font-black uppercase">🔄 Transbordo</span>
                 </div>
               </td>
-              <td class="py-4 px-6">
-                <div class="font-bold text-slate-700">Unidad {{ ruta.Buses?.Numero || ruta.BusId }}</div>
-                <div class="text-[10px] text-slate-400 font-bold uppercase">{{ nombreChofer(ruta.ChoferId) }}</div>
+              <td class="px-8 py-6">
+                <div class="flex items-center gap-3">
+                  <span class="h-10 w-10 flex items-center justify-center rounded-xl bg-slate-900 text-white font-black text-xs">
+                    {{ ruta.Buses?.Numero || ruta.BusId }}
+                  </span>
+                  <div>
+                    <p class="font-bold text-slate-700 text-sm tracking-tight">{{ nombreChofer(ruta.ChoferId) }}</p>
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{{ ruta.Buses?.Placa || 'S/P' }}</p>
+                  </div>
+                </div>
               </td>
-              <td class="py-4 px-6">
-                <span class="px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-tight" :class="estadoBadgeClass(ruta.Estado)">
+              <td class="px-8 py-6 text-center">
+                <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[10px] font-black uppercase tracking-tight shadow-sm"
+                  :class="estadoBadgeClass(ruta.Estado)">
+                  <div class="h-1.5 w-1.5 rounded-full" :class="{
+                    'bg-slate-500': ruta.Estado === 'Programada',
+                    'bg-blue-500': ruta.Estado === 'Habilitada',
+                    'bg-amber-500': ruta.Estado === 'EnCurso',
+                    'bg-emerald-500': ruta.Estado === 'Completada',
+                  }"></div>
                   {{ getEstadoRutaLabel(ruta.Estado) }}
                 </span>
               </td>
-              <td class="py-4 px-6 text-right">
+              <td class="px-8 py-6 text-right">
                 <div class="flex justify-end gap-2">
-                  <button v-if="puedeAvanzar(ruta.Estado)" @click="handleAvanzar(ruta)" class="px-4 py-2 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95">
+                  <button v-if="puedeAvanzar(ruta.Estado)" @click="handleAvanzar(ruta)" 
+                    class="px-5 py-2.5 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95">
                     {{ accionPrincipalLabel(ruta.Estado) }}
                   </button>
-                  <button v-if="ruta.Estado === 'Programada'" @click="handleAbrirVenta(ruta)" class="px-4 py-2 rounded-xl border-2 border-blue-100 text-blue-600 text-[10px] font-black uppercase hover:bg-blue-50 transition-all">
+                  <button v-if="ruta.Estado === 'Programada'" @click="handleAbrirVenta(ruta)" 
+                    class="px-5 py-2.5 rounded-xl border-2 border-blue-50 text-blue-600 text-[10px] font-black uppercase hover:bg-blue-50 transition-all">
                     Abrir Venta
                   </button>
                 </div>
               </td>
             </tr>
             <tr v-if="pagedRutas.length === 0">
-              <td colspan="4" class="py-12 text-center text-slate-400 font-bold">No se encontraron rutas para los criterios seleccionados.</td>
+              <td colspan="4" class="py-20 text-center">
+                <p class="text-4xl mb-4">🔍</p>
+                <p class="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Sin operaciones registradas para esta fecha</p>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <PaginationControls
-        v-if="totalItems > itemsPerPage"
-        :current-page="currentPage"
-        :total-pages="totalPages"
-        :total-items="totalItems"
-        :items-per-page="itemsPerPage"
-        :has-prev-page="currentPage > 1"
-        :has-next-page="currentPage < totalPages"
-        @prev="handlePrevPage"
-        @next="handleNextPage"
-        @set-page="handleSetPage"
-      />
+      <div class="p-6 bg-slate-50/30 border-t border-slate-50">
+        <div class="flex items-center gap-3 mb-4">
+           <PremiumSelect
+             v-model="itemsPerPage"
+             :options="opcionesFilas"
+             label="Ver"
+             container-class="w-32"
+           />
+        </div>
+        <PaginationControls
+          v-if="totalItems > itemsPerPage"
+          :current-page="currentPage" :total-pages="totalPages" :total-items="totalItems" :items-per-page="itemsPerPage"
+          :has-prev-page="currentPage > 1" :has-next-page="currentPage < totalPages"
+          @prev="handlePrevPage" @next="handleNextPage" @set-page="handleSetPage"
+        />
+      </div>
     </section>
+
+    <!-- Modal de Programación -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="mostrarCrearModal" class="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <div class="absolute inset-0 bg-slate-950/40 backdrop-blur-md" @click="mostrarCrearModal = false"></div>
+          <div class="relative w-full max-w-2xl bg-white rounded-[3rem] shadow-2xl overflow-hidden">
+            <div class="bg-slate-900 p-8 text-white">
+              <h3 class="text-2xl font-black tracking-tight">Programar Nuevo Viaje</h3>
+              <p class="text-slate-400 text-xs mt-1 font-medium">Asigna una unidad y un chofer a una frecuencia aprobada.</p>
+            </div>
+            
+            <form @submit.prevent="handleRegistrar" class="p-8 space-y-6">
+              <div v-if="error" class="rounded-xl bg-rose-50 border border-rose-100 p-4 text-xs font-black text-rose-600 uppercase tracking-widest">{{ error }}</div>
+              
+              <div class="grid gap-6 sm:grid-cols-2">
+                <div class="space-y-1.5">
+                  <PremiumSelect
+                    v-model="nuevaRuta.frecuenciaId"
+                    :options="opcionesFrecuencia"
+                    label="Frecuencia Base *"
+                    placeholder="Seleccione Trayecto"
+                  />
+                </div>
+
+                <div class="space-y-1.5">
+                  <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Fecha de Salida *</label>
+                  <input v-model="nuevaRuta.fecha" type="date" :min="fechaHoy" class="input-premium" :class="{'border-rose-300 bg-rose-50': !isDiaValido}" required />
+                  <p v-if="!isDiaValido" class="text-[9px] text-rose-600 font-bold uppercase mt-1 tracking-tighter">La frecuencia no opera este día.</p>
+                </div>
+
+                <div class="space-y-1.5">
+                  <PremiumSelect
+                    v-model="nuevaRuta.busId"
+                    :options="opcionesBus"
+                    label="Unidad Disponible *"
+                    placeholder="Seleccione Bus"
+                    :disabled="!isDiaValido"
+                  />
+                </div>
+
+                <div class="space-y-1.5">
+                  <PremiumSelect
+                    v-model="nuevaRuta.choferId"
+                    :options="opcionesChofer"
+                    label="Chofer Asignado"
+                    placeholder="Sin asignar"
+                    :disabled="!isDiaValido"
+                  />
+                </div>
+              </div>
+
+              <div class="flex gap-3 pt-6 border-t border-slate-50">
+                <button type="submit" :disabled="loading || !isDiaValido" class="btn-primary flex-1">
+                  {{ loading ? '...' : '✓ Programar Despacho' }}
+                </button>
+                <button type="button" @click="mostrarCrearModal = false" class="px-8 py-3 rounded-2xl bg-slate-50 font-black text-slate-400 hover:bg-slate-100 transition-all">
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
+
+<style scoped>
+.modal-enter-active, .modal-leave-active { transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+.modal-enter-from { opacity: 0; filter: blur(4px); transform: scale(0.95); }
+.modal-leave-to { opacity: 0; transform: scale(1.02); }
+</style>

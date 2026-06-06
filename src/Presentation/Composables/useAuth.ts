@@ -1,9 +1,9 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { SupabaseAuthRepository } from '../../Infrastructure/Repositories/SupabaseAuthRepository';
+import { signUpUseCase } from '../../Application/UseCases/SignUp';
+import { loginUseCase } from '../../Application/UseCases/Login';
 import { useAuthStore } from '../Store/authStore';
 
-const authRepository = new SupabaseAuthRepository();
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
 const COOLDOWN_KEY = 'boleteria-auth-cooldown';
@@ -128,7 +128,7 @@ export function useAuth() {
         const nombresVal = parts.slice(0, 1).join(' ');
         const apellidosVal = parts.slice(1).join(' ') || '';
 
-        await authRepository.signUp({
+        await signUpUseCase.execute({
           email: email.value.trim(),
           password: password.value,
           nombres: nombresVal,
@@ -139,7 +139,7 @@ export function useAuth() {
         isRegistering.value = false;
         password.value = '';
       } else {
-        const loggedUser = await authRepository.signIn(email.value.trim(), password.value);
+        const loggedUser = await loginUseCase.execute(email.value.trim(), password.value);
         globalError.value = '';
 
         authStore.user = loggedUser;

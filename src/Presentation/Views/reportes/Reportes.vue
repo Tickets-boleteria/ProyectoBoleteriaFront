@@ -199,7 +199,7 @@ onMounted(() => { cargarBoletos(filtros.value) })
        <div v-for="(val, key) in filtros" :key="key" class="space-y-1">
           <label class="text-[10px] font-black uppercase text-slate-400 ml-1">{{ key }}</label>
           <input v-if="key === 'desde' || key === 'hasta'" type="date" v-model="filtros[key]" class="w-full rounded-2xl border border-slate-100 bg-slate-50 p-3 text-sm font-bold focus:bg-white focus:ring-4 focus:ring-blue-100 transition-all outline-none" />
-          <select v-else v-model="filtros[key]" class="w-full rounded-2xl border border-slate-100 bg-slate-50 p-3 text-sm font-bold focus:bg-white focus:ring-4 focus:ring-blue-100 transition-all outline-none">
+          <select v-else v-model="filtros[key]" class="select-premium">
              <option value="">Todas</option>
              <option v-for="opt in (key === 'cooperativa' ? cooperativas : rutas)" :key="opt" :value="opt">{{ opt }}</option>
           </select>
@@ -285,11 +285,21 @@ onMounted(() => { cargarBoletos(filtros.value) })
     </div>
 
     <div class="rounded-3xl bg-slate-900 shadow-2xl overflow-hidden">
-      <div class="p-8 border-b border-white/5 flex justify-between items-center">
+      <div class="p-8 border-b border-white/5 flex flex-wrap justify-between items-center gap-6">
         <h2 class="text-lg font-black text-white">Log de Auditoría Técnica</h2>
-        <div class="flex gap-4">
-           <select v-model="filtroAuditoria.rol" class="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-xs font-bold text-white outline-none"><option value="">Rol</option><option v-for="r in rolesAud" :key="r">{{ r }}</option></select>
-           <select v-model="filtroAuditoria.modulo" class="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-xs font-bold text-white outline-none"><option value="">Módulo</option><option v-for="m in modulosAud" :key="m">{{ m }}</option></select>
+        <div class="flex flex-wrap gap-4">
+           <select v-model="filtroAuditoria.rol" class="select-premium !bg-white/5 !border-white/10 !text-white !w-40 !py-2 !text-[10px]">
+             <option value="">Todos los Roles</option>
+             <option v-for="r in rolesAud" :key="r" :value="r">{{ r }}</option>
+           </select>
+           <select v-model="filtroAuditoria.modulo" class="select-premium !bg-white/5 !border-white/10 !text-white !w-40 !py-2 !text-[10px]">
+             <option value="">Todos los Módulos</option>
+             <option v-for="m in modulosAud" :key="m" :value="m">{{ m }}</option>
+           </select>
+           <select v-model="filtroAuditoria.tipoCambio" class="select-premium !bg-white/5 !border-white/10 !text-white !w-40 !py-2 !text-[10px]">
+             <option value="">Tipo de Cambio</option>
+             <option v-for="t in tiposCambio" :key="t" :value="t">{{ t }}</option>
+           </select>
         </div>
       </div>
       <div class="overflow-x-auto">

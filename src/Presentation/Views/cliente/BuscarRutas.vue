@@ -25,6 +25,11 @@ interface RutaDisponible {
   asientosLibres: number
   totalAsientos: number
   busPlaca: string
+  busNumero: string
+  busFoto: string | null
+  busChasis: string
+  busCarroceria: string
+  itinerario: { ciudad: string; orden: number }[]
 }
 
 type TipoServicio = 'NORMAL' | 'VIP' | 'EXECUTIVO'
@@ -112,6 +117,31 @@ const filtros = reactive({
   origen: '', destino: '', fecha: fechaMinima,
 })
 
+const filtrosAvanzados = reactive({
+  cooperativa: '',
+  chasis: '',
+  carroceria: '',
+  tipoViaje: 'TODOS' as 'TODOS' | 'DIRECTO' | 'CON_PARADAS',
+})
+
+const opcionesFiltros = computed(() => {
+  const cooperativas = new Set<string>()
+  const chasis = new Set<string>()
+  const carrocerias = new Set<string>()
+
+  rutas.value.forEach(r => {
+    if (r.cooperativa) cooperativas.add(r.cooperativa)
+    if (r.busChasis) chasis.add(r.busChasis)
+    if (r.busCarroceria) carrocerias.add(r.busCarroceria)
+  })
+
+  return {
+    cooperativas: Array.from(cooperativas).sort(),
+    chasis: Array.from(chasis).sort(),
+    carrocerias: Array.from(carrocerias).sort(),
+  }
+})
+
 const normalizarTexto = (value: string) => value.toLowerCase().trim()
 
 const errorFiltros = computed(() => {
@@ -131,11 +161,38 @@ const resultados = computed(() => {
   const origenFiltro = normalizarTexto(filtros.origen)
   const destinoFiltro = normalizarTexto(filtros.destino)
 
-  return rutas.value.filter(r =>
-    (!origenFiltro || normalizarTexto(r.origen).includes(origenFiltro)) &&
-    (!destinoFiltro || normalizarTexto(r.destino).includes(destinoFiltro)) &&
-    (!filtros.fecha || r.fecha >= filtros.fecha)
-  )
+  return rutas.value.filter(r => {
+    // Buscar coincidencia en el itinerario
+    let matchRuta = false
+    if (!origenFiltro && !destinoFiltro) {
+      matchRuta = true
+    } else {
+      // Encontrar indices de origen y destino en el itinerario
+      const idxOrigen = r.itinerario.findIndex(p => normalizarTexto(p.ciudad).includes(origenFiltro))
+      const idxDestino = r.itinerario.findIndex(p => normalizarTexto(p.ciudad).includes(destinoFiltro))
+
+      // Si se busca origen, debe existir. Si se busca destino, debe existir.
+      // Y muy importante: el origen debe estar ANTES que el destino.
+      const hayOrigen = !origenFiltro || idxOrigen !== -1
+      const hayDestino = !destinoFiltro || idxDestino !== -1
+      const ordenCorrecto = (!origenFiltro || !destinoFiltro) || (idxOrigen < idxDestino)
+
+      matchRuta = hayOrigen && hayDestino && ordenCorrecto
+    }
+
+    const matchFecha = !filtros.fecha || r.fecha >= filtros.fecha
+
+    // Filtros avanzados
+    const matchCoop = !filtrosAvanzados.cooperativa || r.cooperativa === filtrosAvanzados.cooperativa
+    const matchChasis = !filtrosAvanzados.chasis || r.busChasis === filtrosAvanzados.chasis
+    const matchCarroceria = !filtrosAvanzados.carroceria || r.busCarroceria === filtrosAvanzados.carroceria
+    
+    let matchTipoViaje = true
+    if (filtrosAvanzados.tipoViaje === 'DIRECTO') matchTipoViaje = r.esDirecto
+    else if (filtrosAvanzados.tipoViaje === 'CON_PARADAS') matchTipoViaje = !r.esDirecto
+
+    return matchRuta && matchFecha && matchCoop && matchChasis && matchCarroceria && matchTipoViaje
+  })
 })
 
 // Paginación
@@ -442,7 +499,7 @@ const cargarRutas = async () => {
         ? supabase.from('Frecuencias').select('Id, CiudadOrigen, CiudadDestino, HoraSalida, EsDirecto, CooperativaId').in('Id', frecuenciaIds)
         : Promise.resolve({ data: [], error: null } as any),
       busIds.length
-        ? supabase.from('Buses').select('Id, Placa, TotalAsientos').in('Id', busIds)
+        ? supabase.from('Buses').select('Id, Placa, TotalAsientos, Numero, MarcaChasis, MarcaCarroceria, FotoUrl').in('Id', busIds)
         : Promise.resolve({ data: [], error: null } as any),
       Promise.resolve(null),
       busIds.length
@@ -503,6 +560,17 @@ const cargarRutas = async () => {
       cooperativasPorId.set(id, fila)
     }
 
+    const paradasPorFrecuencia = new Map<number, { ciudad: string; orden: number }[]>()
+    for (const p of paradasResp.data || []) {
+      const fid = Number(getFieldValue(p, 'FrecuenciaId') ?? getFieldValue(p, 'frecuenciaid'))
+      const list = paradasPorFrecuencia.get(fid) ?? []
+      list.push({
+        ciudad: String(getFieldValue(p, 'Ciudad') ?? ''),
+        orden: Number(getFieldValue(p, 'Orden') ?? 0)
+      })
+      paradasPorFrecuencia.set(fid, list)
+    }
+
     rutas.value = rutasBase.map((fila: DbRow) => {
       const id = Number(getFieldValue(fila, 'Id') ?? getFieldValue(fila, 'id'))
       const frecuenciaId = Number(getFieldValue(fila, 'FrecuenciaId') ?? getFieldValue(fila, 'frecuenciaid'))
@@ -521,12 +589,22 @@ const cargarRutas = async () => {
         return config.precioBase > 0 && config.precioBase < min ? config.precioBase : min
       }, 0)
 
+      const ciudadOrigen = String(getFieldValue(frecuencia, 'CiudadOrigen') ?? '')
+      const ciudadDestino = String(getFieldValue(frecuencia, 'CiudadDestino') ?? '')
+      const paradas = (paradasPorFrecuencia.get(frecuenciaId) ?? []).sort((a, b) => a.orden - b.orden)
+      
+      const itinerario = [
+        { ciudad: ciudadOrigen, orden: 0 },
+        ...paradas,
+        { ciudad: ciudadDestino, orden: 999 }
+      ]
+
       return {
         id,
         frecuenciaId,
         busId,
-        origen: String(getFieldValue(frecuencia, 'CiudadOrigen') ?? ''),
-        destino: String(getFieldValue(frecuencia, 'CiudadDestino') ?? ''),
+        origen: ciudadOrigen,
+        destino: ciudadDestino,
         esDirecto: Boolean(getFieldValue(frecuencia, 'EsDirecto') ?? getFieldValue(frecuencia, 'es_directa') ?? false),
         hora: String(getFieldValue(frecuencia, 'HoraSalida') ?? '').slice(0, 5),
         fecha: String(getFieldValue(fila, 'Fecha') ?? ''),
@@ -535,6 +613,11 @@ const cargarRutas = async () => {
         asientosLibres: Math.max(totalAsientos - vendidos, 0),
         totalAsientos,
         busPlaca: String(getFieldValue(bus, 'Placa') ?? 'N/D'),
+        busNumero: String(getFieldValue(bus, 'Numero') ?? 'N/D'),
+        busFoto: getFieldValue(bus, 'FotoUrl') || null,
+        busChasis: String(getFieldValue(bus, 'MarcaChasis') || 'N/D'),
+        busCarroceria: String(getFieldValue(bus, 'MarcaCarroceria') || 'N/D'),
+        itinerario
       }
     }).filter((ruta) =>
       ruta.id > 0 &&
@@ -819,7 +902,13 @@ const seleccionarRuta = async (ruta: RutaDisponible, tipoServicio: TipoServicio 
     return
   }
   error.value = ''
-  rutaSeleccionada.value = ruta
+  
+  // Clonamos para no afectar la lista original y sobreescribimos origen/destino con el tramo buscado
+  const rutaClonada = { ...ruta }
+  if (filtros.origen) rutaClonada.origen = filtros.origen
+  if (filtros.destino) rutaClonada.destino = filtros.destino
+  
+  rutaSeleccionada.value = rutaClonada
   tipoServicioSeleccionado.value = tipoServicio
   asientosSeleccionados.value = []
   await cargarAsientosDelBus(ruta.busId)
@@ -883,7 +972,7 @@ watch(() => filtros.fecha, () => {
       </div>
 
       <!-- ===== Filtros ===== -->
-      <section v-if="!rutaSeleccionada" class="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur">
+      <section v-if="!rutaSeleccionada" class="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-2xl backdrop-blur space-y-6">
         <div class="grid gap-4 sm:grid-cols-3">
           <div class="rounded-2xl bg-slate-50 p-3">
             <label class="text-xs font-bold text-slate-700">Origen</label>
@@ -898,29 +987,119 @@ watch(() => filtros.fecha, () => {
             <input v-model="filtros.fecha" type="date" :min="fechaMinima" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1"/>
           </div>
         </div>
+
+        <details class="group border-t border-slate-100 pt-4">
+          <summary class="flex items-center gap-2 font-bold text-sm text-blue-600 cursor-pointer select-none">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 group-open:rotate-180 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+            Filtros Avanzados
+          </summary>
+          <div class="grid gap-4 sm:grid-cols-4 mt-4 animate-in fade-in slide-in-from-top-2 duration-300">
+            <div>
+              <label class="text-[10px] font-black uppercase text-slate-400">Cooperativa</label>
+              <select v-model="filtrosAvanzados.cooperativa" class="select-premium">
+                <option value="">Todas</option>
+                <option v-for="c in opcionesFiltros.cooperativas" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] font-black uppercase text-slate-400">Chasis</label>
+              <select v-model="filtrosAvanzados.chasis" class="select-premium">
+                <option value="">Cualquiera</option>
+                <option v-for="c in opcionesFiltros.chasis" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] font-black uppercase text-slate-400">Carrocería</label>
+              <select v-model="filtrosAvanzados.carroceria" class="select-premium">
+                <option value="">Cualquiera</option>
+                <option v-for="c in opcionesFiltros.carrocerias" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] font-black uppercase text-slate-400">Tipo de Viaje</label>
+              <select v-model="filtrosAvanzados.tipoViaje" class="select-premium font-bold text-blue-700">
+                <option value="TODOS">Todos</option>
+                <option value="DIRECTO">Solo Directo</option>
+                <option value="CON_PARADAS">Con Paradas</option>
+              </select>
+            </div>
+          </div>
+        </details>
       </section>
 
       <!-- ===== Resultados ===== -->
-      <section v-if="!rutaSeleccionada" class="grid gap-3">
+      <section v-if="!rutaSeleccionada" class="grid gap-4">
         <article v-for="r in pagedResultados" :key="r.id"
-          class="rounded-2xl bg-white p-5 shadow-md border border-slate-100 hover:shadow-lg transition-all flex flex-wrap items-center gap-4">
-          <div class="flex-1 min-w-[200px]">
-            <p class="text-xs font-bold uppercase tracking-wider text-slate-400">{{ r.cooperativa }}</p>
-            <p class="text-xl font-black text-slate-900">{{ r.origen }} → {{ r.destino }}</p>
-            <p class="text-sm text-slate-500">{{ r.fecha }} · {{ r.hora }}</p>
+          class="group rounded-3xl bg-white shadow-md border border-slate-100 hover:shadow-2xl transition-all overflow-hidden flex flex-col md:flex-row">
+          
+          <!-- Foto del Bus -->
+          <div class="md:w-64 h-48 md:h-auto bg-slate-200 relative shrink-0">
+            <img v-if="r.busFoto" :src="r.busFoto" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="Bus"/>
+            <div v-else class="w-full h-full flex flex-col items-center justify-center text-slate-400">
+              <span class="text-4xl">🚌</span>
+              <p class="text-[10px] font-bold uppercase mt-2">Sin fotografía</p>
+            </div>
+            <div class="absolute top-3 left-3 px-3 py-1 rounded-full bg-white/90 backdrop-blur shadow-sm text-[10px] font-black uppercase tracking-widest text-slate-900">
+              Disco {{ r.busNumero }}
+            </div>
+            <div v-if="r.esDirecto" class="absolute bottom-3 right-3 px-3 py-1 rounded-full bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest shadow-lg">
+              Directo
+            </div>
           </div>
-          <div class="min-w-[220px]">
-            <select v-model="tipoSeleccionadoPorRuta[r.id]" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
-              <option value="">Selecciona tipo de asiento</option>
-              <option v-for="tipo in tiposDisponiblesParaRuta(r)" :key="tipo.tipo" :value="tipo.tipo">
-                {{ tipo.nombre }} · ${{ tipo.precioBase.toFixed(2) }}
-              </option>
-            </select>
+
+          <!-- Info Viaje -->
+          <div class="flex-1 p-6 flex flex-col justify-between">
+            <div class="space-y-4">
+              <div class="flex justify-between items-start">
+                <div>
+                  <p class="text-[10px] font-black uppercase tracking-wider text-blue-600">{{ r.cooperativa }}</p>
+                  <h3 class="text-2xl font-black text-slate-900 leading-tight">{{ r.origen }} <span class="text-slate-300 mx-1">→</span> {{ r.destino }}</h3>
+                </div>
+                <div class="text-right">
+                  <p class="text-sm font-bold text-slate-400">{{ r.fecha }}</p>
+                  <p class="text-xl font-black text-slate-900">{{ r.hora }}</p>
+                </div>
+              </div>
+
+              <!-- Specs Bus -->
+              <div class="grid grid-cols-2 sm:grid-cols-3 gap-y-3 gap-x-4 py-4 border-y border-slate-50">
+                <div>
+                  <p class="text-[9px] font-black uppercase text-slate-400 tracking-tighter">Placa</p>
+                  <p class="text-xs font-bold text-slate-700">{{ r.busPlaca }}</p>
+                </div>
+                <div>
+                  <p class="text-[9px] font-black uppercase text-slate-400 tracking-tighter">Chasis</p>
+                  <p class="text-xs font-bold text-slate-700">{{ r.busChasis }}</p>
+                </div>
+                <div>
+                  <p class="text-[9px] font-black uppercase text-slate-400 tracking-tighter">Carrocería</p>
+                  <p class="text-xs font-bold text-slate-700">{{ r.busCarroceria }}</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-6 flex flex-wrap items-center justify-between gap-4">
+              <div class="flex items-center gap-4">
+                <select v-model="tipoSeleccionadoPorRuta[r.id]" class="select-premium !w-64">
+                  <option value="">Tipo de Asiento</option>
+                  <option v-for="tipo in tiposDisponiblesParaRuta(r)" :key="tipo.tipo" :value="tipo.tipo">
+                    {{ tipo.nombre }} · ${{ tipo.precioBase.toFixed(2) }}
+                  </option>
+                </select>
+                <p v-if="r.asientosLibres > 0" class="text-xs font-bold text-slate-400">
+                  <span class="text-emerald-600">{{ r.asientosLibres }}</span> libres
+                </p>
+                <p v-else class="text-xs font-bold text-rose-500 uppercase tracking-widest">Agotado</p>
+              </div>
+
+              <button :disabled="!tipoSeleccionadoPorRuta[r.id] || r.asientosLibres === 0" @click="seleccionarRuta(r, tipoSeleccionadoPorRuta[r.id])"
+                class="px-8 py-3 rounded-2xl bg-blue-600 font-black text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:hover:scale-100">
+                Elegir asientos
+              </button>
+            </div>
           </div>
-          <button :disabled="!tipoSeleccionadoPorRuta[r.id] || r.asientosLibres === 0" @click="seleccionarRuta(r, tipoSeleccionadoPorRuta[r.id])"
-            class="rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-xl hover:bg-blue-700 disabled:opacity-50">
-            Elegir asientos
-          </button>
         </article>
 
         <PaginationControls

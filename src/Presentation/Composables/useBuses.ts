@@ -6,6 +6,7 @@ import {
 } from "../../Application/UseCases/CrearBus";
 import { ActualizarBus } from "../../Application/UseCases/BusUseCases";
 import { ReportarIncidenteOperativo } from "../../Application/UseCases/ReportarIncidenteOperativo";
+import { ReactivarBus } from "../../Application/UseCases/ReactivarBus";
 import { SupabaseBusRepository } from "../../Infrastructure/Repositories/SupabaseBusRepository";
 import { SupabaseRutaRepository } from "../../Infrastructure/Repositories/SupabaseRutaRepository";
 import { SupabaseVentasRepository } from "../../Infrastructure/Repositories/SupabaseVentasRepository";
@@ -21,6 +22,7 @@ export function useBuses() {
 
 	const crearBusUseCase = new CrearBus(busRepo);
 	const actualizarBusUseCase = new ActualizarBus(busRepo);
+	const reactivarBusUseCase = new ReactivarBus(busRepo);
 	const reportarIncidenteUseCase = new ReportarIncidenteOperativo(
 		busRepo,
 		rutaRepo,
@@ -129,6 +131,23 @@ export function useBuses() {
 		}
 	}
 
+	async function reactivarBus(busId: number) {
+		try {
+			loading.value = true;
+			error.value = "";
+			await reactivarBusUseCase.ejecutar({
+				busId,
+				reactivadoPor: "Admin", // Por ahora estático o desde el store si existiera
+			});
+			await cargarBuses();
+		} catch (err: any) {
+			error.value = err.message || "Error al reactivar el bus.";
+			throw err;
+		} finally {
+			loading.value = false;
+		}
+	}
+
 	onMounted(cargarBuses);
 
 	return {
@@ -139,5 +158,6 @@ export function useBuses() {
 		registrarBus,
 		guardarBus,
 		reportarIncidenteYRefrescar,
+		reactivarBus,
 	};
 }

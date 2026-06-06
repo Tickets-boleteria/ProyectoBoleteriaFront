@@ -4,9 +4,9 @@ import { AsignarBusAFrecuencia } from '../../Application/UseCases/AsignarBusAFre
 import { DomainException } from '../../Domain/Exceptions/DomainException';
 
 vi.mock('../../Infrastructure/Repositories/SupabaseRutaRepository');
-vi.mock('../../Infrastructure/SupabaseBusRepository');
+vi.mock('../../Infrastructure/Repositories/SupabaseBusRepository');
 vi.mock('../../Infrastructure/Repositories/SupabaseFrecuenciaRepository');
-vi.mock('../../Infrastructure/SupabaseAuditRepository');
+vi.mock('../../Infrastructure/Repositories/SupabaseAuditRepository');
 
 describe('useAsignarBusAFrecuencia', () => {
   beforeEach(() => {

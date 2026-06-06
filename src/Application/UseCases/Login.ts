@@ -1,30 +1,22 @@
-import { supabase } from '../../Infrastructure/Api/supabaseClient'
+import { IAuthRepository } from '../../Domain/Repositories/IAuthRepository'
+import { SupabaseAuthRepository } from '../../Infrastructure/Repositories/SupabaseAuthRepository'
 
 export class LoginUseCase {
+  constructor(private authRepository: IAuthRepository) {}
+
   async execute(email: string, password: string) {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return data
+    return this.authRepository.signIn(email, password)
   }
 
   async logout() {
-    const { error } = await supabase.auth.signOut()
-    if (error) {
-      throw new Error(error.message)
-    }
+    await this.authRepository.signOut()
   }
 
   async getCurrentUser() {
-    const { data } = await supabase.auth.getUser()
-    return data.user
+    return this.authRepository.getCurrentUser()
   }
 }
 
-export const loginUseCase = new LoginUseCase()
+const authRepo = new SupabaseAuthRepository()
+export const loginUseCase = new LoginUseCase(authRepo)
+

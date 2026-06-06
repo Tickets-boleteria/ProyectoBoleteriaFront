@@ -102,7 +102,7 @@ export class SupabaseAuthRepository implements IAuthRepository {
     let { data: dbUser, error: dbError } = await supabase
       .from('Usuarios')
       .select('*')
-      .ilike('email', cleanEmail)
+      .ilike('Email', cleanEmail)
       .limit(1)
       .then(res => ({ data: res.data?.[0], error: res.error }));
 

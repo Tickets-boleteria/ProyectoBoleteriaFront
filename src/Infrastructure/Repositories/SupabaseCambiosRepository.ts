@@ -1,5 +1,6 @@
-import { supabase } from './Api/supabaseClient';
-import { ICambiosRepository } from '../Domain/Repositories/ICambiosRepository';
+import { supabase } from '../Api/supabaseClient';
+import { ICambiosRepository } from '../../Domain/Repositories/ICambiosRepository';
+import { DomainException } from '../../Domain/Exceptions/DomainException';
 
 export class SupabaseCambiosRepository implements ICambiosRepository {
   private readonly TABLA = 'Cambios';
@@ -10,18 +11,17 @@ export class SupabaseCambiosRepository implements ICambiosRepository {
     if (githubUrl) payload.GithubIssueUrl = githubUrl;
 
     const { error } = await supabase.from(this.TABLA).update(payload).eq('Id', id);
-    if (error) throw new Error(`Error al marcar cambio como implementado: ${error.message}`);
+    if (error) throw new DomainException(`Error al marcar cambio como implementado: ${error.message}`);
   }
 
   async contarImplementadosPorTipo(): Promise<Record<string, number>> {
     const { data, error } = await supabase
       .from(this.TABLA)
-      .select('TipoCambio', { count: 'exact', head: false })
+      .select('TipoCambio')
       .eq('Estado', 'Implementado');
 
-    if (error) throw new Error(`Error obteniendo conteo de cambios: ${error.message}`);
+    if (error) throw new DomainException(`Error obteniendo conteo de cambios: ${error.message}`);
 
-    // data may be array of rows; we aggregate in JS
     const counts: Record<string, number> = { normal: 0, estandar: 0, emergencia: 0 };
     if (data && Array.isArray(data)) {
       for (const row of data) {

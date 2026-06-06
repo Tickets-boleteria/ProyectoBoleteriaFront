@@ -1,5 +1,5 @@
 import { ref, onMounted } from 'vue';
-import { SupabaseAuditoriaRepository } from '../../Infrastructure/Repositories/SupabaseAuditoriaRepository';
+import { SupabaseAuditRepository } from '../../Infrastructure/Repositories/SupabaseAuditRepository';
 import { supabase } from '../../Infrastructure/Api/supabaseClient';
 
 const getFieldValue = (obj: any, fieldName: string) => {
@@ -20,7 +20,7 @@ export function useReportes() {
     auditoria: '',
   });
 
-  const auditoriaRepo = new SupabaseAuditoriaRepository();
+  const auditoriaRepo = new SupabaseAuditRepository();
 
   const mapearBoleto = (row: any) => {
     const ventas = row.Ventas ?? row.ventas ?? {};

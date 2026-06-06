@@ -1,4 +1,5 @@
 import { IAuthRepository, SignUpPayload } from '../../Domain/Repositories/IAuthRepository'
+import { SupabaseAuthRepository } from '../../Infrastructure/Repositories/SupabaseAuthRepository'
 
 export class SignUpUseCase {
   constructor(private authRepository: IAuthRepository) {}
@@ -7,3 +8,6 @@ export class SignUpUseCase {
     await this.authRepository.signUp(payload)
   }
 }
+
+const authRepo = new SupabaseAuthRepository()
+export const signUpUseCase = new SignUpUseCase(authRepo)

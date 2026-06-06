@@ -42,5 +42,6 @@ export interface IBusRepository {
 		replacementBusId?: number,
 		reportadoPor?: string,
 	): Promise<Bus>;
+	reactivarBus(busId: number, reactivadoPor: string): Promise<Bus>;
 	obtenerRutasAfectadas(busId: number): Promise<number>;
 }

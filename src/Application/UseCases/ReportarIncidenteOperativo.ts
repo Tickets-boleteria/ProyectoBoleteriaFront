@@ -6,6 +6,7 @@ import { IRutaRepository } from '../../Domain/Repositories/IRutaRepository';
 import { IVentaRepository } from '../../Domain/Repositories/IVentaRepository';
 import { ReportarIncidenteOperativoDto } from '../Dtos/ReportarIncidenteOperativoDto';
 import { Ruta } from '../../Domain/Entities/Ruta';
+import { sendEmail } from '../../utils/email';
 
 export interface ReportarIncidenteOperativoResponse {
   success: boolean;
@@ -77,7 +78,7 @@ export class ReportarIncidenteOperativo {
     let mensajeExtra = '';
 
     if (rutaActiva) {
-      // Marcar ruta original como incidente/cancelada con prefijo estricto
+      // Marcar ruta original como incidente/cancelada
       await this.rutaRepository.actualizarEstado(rutaActiva.id!, 'Cancelada');
       
       const { supabase } = await import('../../Infrastructure/Api/supabaseClient');
@@ -94,7 +95,7 @@ export class ReportarIncidenteOperativo {
           rutaActiva.frecuenciaId,
           busReemplazo.id!,
           rutaActiva.fecha,
-          'EnCurso', // Inicia directamente en curso
+          'EnCurso',
           undefined,
           rutaActiva.choferId,
           rutaActiva.horaSalida,
@@ -103,24 +104,46 @@ export class ReportarIncidenteOperativo {
           undefined,
           rutaActiva.hojaRutaId,
           rutaActiva.esDirecta,
-          true // excepcionEmergencia: true por ser un transbordo operativo
+          true
         );
 
         const rutaCreada = await this.rutaRepository.crearRuta(nuevaRuta);
         nuevaRutaId = rutaCreada.id;
 
-        // Migrar todas las ventas de la ruta vieja a la nueva
         await this.ventaRepository.migrarVentasARuta(rutaActiva.id!, rutaCreada.id!);
         mensajeExtra = ` Se ha generado un transbordo automático a la unidad ${busReemplazo.numero} y se han migrado los pasajeros.`;
       } else {
-        mensajeExtra = ` El viaje en curso ha sido cancelado. Se requiere asignar una unidad de reemplazo manualmente para continuar el servicio.`;
+        mensajeExtra = ` El viaje en curso ha sido cancelado.`;
       }
     }
 
-    // 6. Obtener conteo de otras rutas afectadas (programadas)
+    // 6. Obtener conteo de otras rutas afectadas
     const rutasAfectadas = await this.busRepository.obtenerRutasAfectadas(Number(busActual.id));
 
     const incidenteId = `INC-${busActual.id}-${Date.now()}`;
+
+    // Enviar notificación de incidente por email
+    try {
+      await sendEmail({
+        to: 'soporte@boleteria.com.ec',
+        subject: `INCIDENTE OPERATIVO: Bus ${busActual.numero}`,
+        html: `
+          <div style="font-family: sans-serif; border: 2px solid #ef4444; border-radius: 16px; padding: 24px;">
+            <h2 style="color: #ef4444;">🚨 Reporte de Incidente</h2>
+            <p>Se ha reportado un incidente que pone al bus fuera de servicio.</p>
+            <ul>
+              <li><strong>Bus:</strong> ${busActual.numero} (Placa: ${busActual.placa})</li>
+              <li><strong>Motivo:</strong> ${input.motivo}</li>
+              <li><strong>Descripción:</strong> ${input.descripcion || 'Sin detalle'}</li>
+              <li><strong>Reportado por:</strong> ${input.reportadoPor || 'Personal de bus'}</li>
+              <li><strong>Acción tomada:</strong> En mantenimiento.</li>
+            </ul>
+          </div>
+        `
+      });
+    } catch (emailErr) {
+      console.error('Error enviando email de incidente:', emailErr);
+    }
 
     return {
       success: true,

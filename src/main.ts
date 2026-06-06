@@ -16,6 +16,7 @@ import BuscarRutas from './Presentation/Views/cliente/BuscarRutas.vue'
 import MisBoletos from './Presentation/Views/cliente/MisBoletos.vue'
 import ValidarQR from './Presentation/Views/chofer/ValidarQR.vue'
 import Reportes from './Presentation/Views/reportes/Reportes.vue'
+import ConfiguracionAdmin from './Presentation/Views/admin/ConfiguracionAdmin.vue'
 import { useAuthStore } from './Presentation/Store/authStore'
 import  AprobarPago  from './Presentation/Views/oficinista/AprobarPago.vue'
 
@@ -69,6 +70,12 @@ const router = createRouter({
       path: '/admin/hoja-ruta',
       name: 'HojaRutaAdmin',
       component: HojaRutaAdmin,
+      meta: { roles: ADMIN },
+    },
+    {
+      path: '/admin/configuracion',
+      name: 'ConfiguracionAdmin',
+      component: ConfiguracionAdmin,
       meta: { roles: ADMIN },
     },
     {

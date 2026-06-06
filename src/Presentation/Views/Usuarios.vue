@@ -6,6 +6,8 @@ import { GetUsuarios } from '../../Application/UseCases/GetUsuarios'
 import { CrearUsuario } from '../../Application/UseCases/CrearUsuario'
 import { ActualizarUsuario } from '../../Application/UseCases/ActualizarUsuario'
 import { Cedula } from '../../Domain/ValueObjects/Cedula'
+import PaginationControls from '../Components/PaginationControls.vue'
+import PremiumSelect from '../Components/PremiumSelect.vue'
 
 const repo = new SupabaseUsuarioRepository()
 const usuarios = ref<any[]>([])
@@ -222,8 +224,7 @@ const resetForm = () => {
 }
 
 const usuariosFiltrados = computed(() => {
-  // 1. Primero filtramos como ya lo hacías perfectamente:
-  const resultadoFiltrado = usuarios.value.filter(u => {
+  const resultadoFiltrado = (usuarios.value || []).filter(u => {
     const uRol = String(u.Rol || '').trim() === 'Cliente' ? 'Usuario Final' : String(u.Rol || '').trim()
     const matchRol = filtroRol.value === 'Todos' || uRol === filtroRol.value
     const q = busqueda.value.toLowerCase().trim()
@@ -235,11 +236,10 @@ const usuariosFiltrados = computed(() => {
     return matchRol && matchBusqueda
   })
 
-  // Usaremos el campo 'created_at' o 'FechaCreacion' (cambia el nombre según tu tabla).
   return resultadoFiltrado.sort((a, b) => {
     const fechaA = new Date(a.created_at || a.FechaCreacion || 0).getTime()
     const fechaB = new Date(b.created_at || b.FechaCreacion || 0).getTime()
-    return fechaB - fechaA // Al restar B - A, los más recientes suben al inicio
+    return fechaB - fechaA
   })
 })
 
@@ -254,6 +254,10 @@ const usuariosPaginados = computed(() => {
   return usuariosFiltrados.value.slice(inicio, fin)
 })
 
+const handlePrevPage = () => { if (paginaActual.value > 1) paginaActual.value-- }
+const handleNextPage = () => { if (paginaActual.value < totalPaginas.value) paginaActual.value++ }
+const handleSetPage = (p: number) => { paginaActual.value = p }
+
 const rolColor = (rol: string) => {
   const r = String(rol || '').trim()
   if (r === 'Admin' || r === 'Administrador') return 'text-blue-600 bg-blue-50 border-blue-100'
@@ -262,21 +266,36 @@ const rolColor = (rol: string) => {
   return 'text-slate-600 bg-slate-50 border-slate-100'
 }
 
+const opcionesRol = ROLES.map(r => ({ label: r, value: r }))
+const opcionesActivo = [
+  { label: 'Activo / Autorizado', value: true, icon: '🟢' },
+  { label: 'Inactivo / Bloqueado', value: false, icon: '🔴' }
+]
+const opcionesLicencia = TIPOS_LICENCIA.map(t => ({ label: t, value: t }))
+const opcionesFiltroRol = [
+  { label: 'Todos los roles', value: 'Todos' },
+  ...ROLES.map(r => ({ label: r, value: r }))
+]
+const opcionesFilas = [
+  { label: '5 filas', value: 5 },
+  { label: '10 filas', value: 10 },
+  { label: '20 filas', value: 20 }
+]
+
 onMounted(cargarUsuarios)
 </script>
 
 <template>
   <div class="space-y-6">
     <!-- Header -->
-    <section class="rounded-[2.5rem] bg-slate-900 text-white shadow-2xl p-8 md:p-10 relative overflow-hidden">
+    <section class="header-premium">
       <div class="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full -mr-32 -mt-32 blur-3xl"></div>
       <div class="relative z-10 flex flex-wrap items-center justify-between gap-6">
         <div>
-          <h1 class="text-3xl md:text-4xl font-black tracking-tight">Directorio de Usuarios</h1>
+          <h1 class="text-3xl md:text-4xl font-black tracking-tight text-white">Directorio de Usuarios</h1>
           <p class="mt-2 text-slate-400 font-medium text-sm md:text-base">Gestión integral de roles operativos y seguridad de acceso.</p>
         </div>
-        <button @click="abrirCrear"
-          class="flex items-center gap-3 rounded-2xl bg-blue-600 px-8 py-4 font-black text-white shadow-xl shadow-blue-500/20 transition-all hover:bg-blue-500 hover:-translate-y-1 active:scale-95">
+        <button @click="abrirCrear" class="btn-primary">
           <span class="text-2xl">+</span>
           <span>Nuevo Registro</span>
         </button>
@@ -320,117 +339,86 @@ onMounted(cargarUsuarios)
               </div>
 
               <div class="grid gap-6 sm:grid-cols-2">
-                <!-- Cédula -->
                 <div class="space-y-1.5">
-                  <label class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Cédula de Identidad *</label>
-                  <input v-model="usuarioForm.cedula" :disabled="esModoEdicion || esModoLectura" placeholder="10 dígitos numéricos" 
-                    class="w-full rounded-xl border-2 px-4 py-3 font-bold text-slate-700 transition-all focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/5 disabled:opacity-50"
-                    :class="errors.cedula ? 'border-rose-300 bg-rose-50' : 'border-slate-100 bg-slate-50 focus:border-blue-500'"/>
-                  <p v-if="errors.cedula" class="text-[10px] text-rose-600 font-bold ml-1 uppercase">{{ errors.cedula }}</p>
+                  <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Cédula de Identidad *</label>
+                  <input v-model="usuarioForm.cedula" :disabled="esModoEdicion || esModoLectura" placeholder="10 dígitos" class="input-premium" :class="{'border-rose-300 bg-rose-50': errors.cedula}"/>
+                  <p v-if="errors.cedula" class="text-[9px] text-rose-600 font-black uppercase">{{ errors.cedula }}</p>
                 </div>
 
-                <!-- Email -->
                 <div class="space-y-1.5">
-                  <label class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Correo Electrónico *</label>
-                  <input v-model="usuarioForm.email" type="email" :disabled="esModoLectura" placeholder="usuario@sistema.com"
-                    class="w-full rounded-xl border-2 px-4 py-3 font-bold text-slate-700 transition-all focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/5 disabled:opacity-50"
-                    :class="errors.email ? 'border-rose-300 bg-rose-50' : 'border-slate-100 bg-slate-50 focus:border-blue-500'"/>
-                  <p v-if="errors.email" class="text-[10px] text-rose-600 font-bold ml-1 uppercase">{{ errors.email }}</p>
+                  <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Correo Electrónico *</label>
+                  <input v-model="usuarioForm.email" type="email" :disabled="esModoLectura" class="input-premium" :class="{'border-rose-300 bg-rose-50': errors.email}"/>
+                  <p v-if="errors.email" class="text-[9px] text-rose-600 font-black uppercase">{{ errors.email }}</p>
                 </div>
 
-                <!-- Nombres -->
                 <div class="space-y-1.5">
-                  <label class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Nombres *</label>
-                  <input v-model="usuarioForm.nombres" :disabled="esModoLectura" placeholder="Solo letras"
-                    class="w-full rounded-xl border-2 px-4 py-3 font-bold text-slate-700 transition-all focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/5 disabled:opacity-50"
-                    :class="errors.nombres ? 'border-rose-300 bg-rose-50' : 'border-slate-100 bg-slate-50 focus:border-blue-500'"/>
-                  <p v-if="errors.nombres" class="text-[10px] text-rose-600 font-bold ml-1 uppercase">{{ errors.nombres }}</p>
+                  <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nombres *</label>
+                  <input v-model="usuarioForm.nombres" :disabled="esModoLectura" class="input-premium" />
                 </div>
 
-                <!-- Apellidos -->
                 <div class="space-y-1.5">
-                  <label class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Apellidos *</label>
-                  <input v-model="usuarioForm.apellidos" :disabled="esModoLectura" placeholder="Solo letras"
-                    class="w-full rounded-xl border-2 px-4 py-3 font-bold text-slate-700 transition-all focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/5 disabled:opacity-50"
-                    :class="errors.apellidos ? 'border-rose-300 bg-rose-50' : 'border-slate-100 bg-slate-50 focus:border-blue-500'"/>
-                  <p v-if="errors.apellidos" class="text-[10px] text-rose-600 font-bold ml-1 uppercase">{{ errors.apellidos }}</p>
+                  <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Apellidos *</label>
+                  <input v-model="usuarioForm.apellidos" :disabled="esModoLectura" class="input-premium" />
                 </div>
 
-                <!-- Contraseña -->
                 <template v-if="!esModoEdicion">
                   <div class="space-y-1.5">
-                    <label class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Contraseña *</label>
-                    <input v-model="usuarioForm.password" type="password" placeholder="8+ caracteres"
-                      class="w-full rounded-xl border-2 px-4 py-3 font-bold text-slate-700 transition-all focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/5"
-                      :class="errors.password ? 'border-rose-300 bg-rose-50' : 'border-slate-100 bg-slate-50 focus:border-blue-500'"/>
-                    <p v-if="errors.password" class="text-[10px] text-rose-600 font-bold ml-1 uppercase">{{ errors.password }}</p>
+                    <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Contraseña *</label>
+                    <input v-model="usuarioForm.password" type="password" class="input-premium" />
                   </div>
                   <div class="space-y-1.5">
-                    <label class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Confirmar Contraseña *</label>
-                    <input v-model="usuarioForm.confirmPassword" type="password" placeholder="Repite la clave"
-                      class="w-full rounded-xl border-2 px-4 py-3 font-bold text-slate-700 transition-all focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/5"
-                      :class="errors.confirmPassword ? 'border-rose-300 bg-rose-50' : 'border-slate-100 bg-slate-50 focus:border-blue-500'"/>
-                    <p v-if="errors.confirmPassword" class="text-[10px] text-rose-600 font-bold ml-1 uppercase">{{ errors.confirmPassword }}</p>
+                    <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Confirmar *</label>
+                    <input v-model="usuarioForm.confirmPassword" type="password" class="input-premium" />
                   </div>
                 </template>
 
-                <!-- Teléfono -->
                 <div class="space-y-1.5">
-                  <label class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Teléfono (09 / +593) *</label>
-                  <input v-model="usuarioForm.telefono" :disabled="esModoLectura" placeholder="Ej: 0987654321"
-                    class="w-full rounded-xl border-2 px-4 py-3 font-bold text-slate-700 transition-all focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/5 disabled:opacity-50"
-                    :class="errors.telefono ? 'border-rose-300 bg-rose-50' : 'border-slate-100 bg-slate-50 focus:border-blue-500'"/>
-                  <p v-if="errors.telefono" class="text-[10px] text-rose-600 font-bold ml-1 uppercase">{{ errors.telefono }}</p>
+                  <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Teléfono *</label>
+                  <input v-model="usuarioForm.telefono" :disabled="esModoLectura" class="input-premium" />
                 </div>
 
-                <!-- Rol -->
                 <div class="space-y-1.5">
-                  <label class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Rol del Sistema *</label>
-                  <select v-model="usuarioForm.rol" :disabled="esModoLectura"
-                    class="w-full rounded-xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold text-slate-700 transition-all focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/5 disabled:opacity-50">
-                    <option v-for="rol in ROLES" :key="rol" :value="rol">{{ rol }}</option>
-                  </select>
+                  <PremiumSelect
+                    v-model="usuarioForm.rol"
+                    :options="opcionesRol"
+                    :disabled="esModoLectura"
+                    label="Rol de Usuario *"
+                  />
                 </div>
 
-                <!-- Chofer Info -->
                 <template v-if="usuarioForm.rol === 'Chofer'">
-                  <div class="space-y-1.5 sm:col-span-2 p-5 bg-amber-50/50 border-2 border-dashed border-amber-200 rounded-3xl grid sm:grid-cols-2 gap-4">
+                  <div class="space-y-1.5 sm:col-span-2 p-6 bg-slate-50 rounded-[2rem] border border-slate-100 grid sm:grid-cols-2 gap-6">
                     <div class="space-y-1.5">
-                      <label class="text-[10px] font-black uppercase tracking-[0.2em] text-amber-600 ml-1">Nº Licencia (Cédula) *</label>
-                      <input v-model="usuarioForm.numeroLicencia" disabled
-                        class="w-full rounded-xl border-2 border-amber-100 bg-white/50 px-4 py-3 font-black text-amber-700"/>
-                      <p class="text-[9px] text-amber-600 font-medium ml-1">Heredado automáticamente de la cédula.</p>
+                      <label class="text-[10px] font-black uppercase tracking-widest text-blue-600">Nº Licencia</label>
+                      <input v-model="usuarioForm.numeroLicencia" disabled class="input-premium bg-white/50 cursor-not-allowed"/>
                     </div>
                     <div class="space-y-1.5">
-                      <label class="text-[10px] font-black uppercase tracking-[0.2em] text-amber-600 ml-1">Tipo de Licencia *</label>
-                      <select v-model="usuarioForm.tipoLicencia" :disabled="esModoLectura"
-                        class="w-full rounded-xl border-2 border-amber-100 bg-white px-4 py-3 font-bold text-slate-700 transition-all focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-500/5 disabled:opacity-50">
-                        <option v-for="t in TIPOS_LICENCIA" :key="t" :value="t">{{ t }}</option>
-                      </select>
+                      <PremiumSelect
+                        v-model="usuarioForm.tipoLicencia"
+                        :options="opcionesLicencia"
+                        :disabled="esModoLectura"
+                        label="Tipo Licencia"
+                      />
                     </div>
                   </div>
                 </template>
 
-                <!-- Estado -->
-                <div v-if="esModoEdicion || esModoLectura" class="space-y-1.5 sm:col-span-2">
-                  <label class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">Estado de Acceso *</label>
-                  <select v-model="usuarioForm.activo" :disabled="esModoLectura"
-                    class="w-full rounded-xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold text-slate-700 transition-all focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/5 disabled:opacity-50">
-                    <option :value="true">Activo / Autorizado</option>
-                    <option :value="false">Inactivo / Bloqueado</option>
-                  </select>
+                <div v-if="esModoEdicion || esModoLectura" class="space-y-1.5 sm:col-span-2 pt-4 border-t border-slate-50">
+                  <PremiumSelect
+                    v-model="usuarioForm.activo"
+                    :options="opcionesActivo"
+                    :disabled="esModoLectura"
+                    label="Estado de Acceso"
+                  />
                 </div>
               </div>
 
-              <div class="mt-10 flex gap-3">
-                <button v-if="!esModoLectura" @click="guardarUsuario" :disabled="isSubmitting"
-                  class="flex-1 rounded-xl bg-blue-600 px-6 py-4 font-black text-sm text-white shadow-xl shadow-blue-500/20 transition-all hover:bg-blue-500 active:scale-95 disabled:opacity-50">
-                  {{ isSubmitting ? 'Verificando...' : (esModoEdicion ? 'Guardar Cambios' : 'Confirmar Alta') }}
+              <div class="mt-10 flex gap-4">
+                <button v-if="!esModoLectura" @click="guardarUsuario" :disabled="isSubmitting" class="btn-primary flex-1 !py-4">
+                  {{ isSubmitting ? 'Guardando...' : (esModoEdicion ? 'Actualizar Perfil' : 'Confirmar Alta') }}
                 </button>
-                <button @click="cerrarModal" 
-                  :class="esModoLectura ? 'flex-1' : ''"
-                  class="rounded-xl bg-slate-50 px-10 py-4 font-black text-sm text-slate-500 transition-all hover:bg-slate-100 active:scale-95">
-                  {{ esModoLectura ? 'Cerrar Vista Previa' : 'Cancelar' }}
+                <button @click="cerrarModal" class="px-10 py-4 rounded-2xl bg-slate-50 font-black text-slate-500 hover:bg-slate-100 transition-all active:scale-95">
+                  {{ esModoLectura ? 'Cerrar' : 'Cancelar' }}
                 </button>
               </div>
             </div>
@@ -440,38 +428,37 @@ onMounted(cargarUsuarios)
     </Teleport>
 
     <!-- Filtros Elegant -->
-    <section class="rounded-[2rem] bg-white p-6 shadow-xl border border-slate-100 flex flex-wrap items-end gap-6">
+    <section class="card-premium p-6 flex flex-wrap items-end gap-6 bg-white/80 backdrop-blur-sm">
       <div class="flex-1 min-w-[280px]">
-        <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Búsqueda avanzada</label>
+        <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Búsqueda rápida</label>
         <div class="relative mt-2">
           <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300">🔍</span>
-          <input v-model="busqueda" type="text" placeholder="Filtra por nombre, identificación o email..."
-            class="w-full rounded-xl border border-slate-100 bg-slate-50/50 py-3.5 pl-11 pr-4 font-bold text-slate-600 outline-none transition-all focus:border-blue-500 focus:bg-white"/>
+          <input v-model="busqueda" type="text" placeholder="Filtrar por nombre, identificación o email..."
+            class="input-premium !pl-12 !py-3.5"/>
         </div>
       </div>
-      <div class="w-full sm:w-60">
-        <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Categoría de Perfil</label>
-        <select v-model="filtroRol" 
-          class="mt-2 w-full rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-3.5 font-bold text-slate-600 outline-none transition-all focus:border-blue-500 focus:bg-white">
-          <option>Todos</option>
-          <option v-for="rol in ROLES" :key="rol" :value="rol">{{ rol }}</option>
-        </select>
+      <div class="w-full sm:w-64">
+        <PremiumSelect
+          v-model="filtroRol"
+          :options="opcionesFiltroRol"
+          label="Filtrar por Categoría"
+        />
       </div>
     </section>
 
     <!-- Tabla Clean y Profesional -->
-    <section class="rounded-[2.5rem] bg-white shadow-2xl border border-slate-100 overflow-hidden">
+    <section class="card-premium">
       <div v-if="isLoading" class="p-24 text-center">
         <div class="inline-flex h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
-        <p class="mt-4 font-black text-slate-400 uppercase tracking-widest text-[10px]">Actualizando Directorio...</p>
+        <p class="mt-4 font-black text-slate-400 uppercase tracking-widest text-[10px]">Sincronizando Directorio...</p>
       </div>
       <div v-else class="overflow-x-auto">
         <table v-if="usuariosFiltrados.length > 0" class="w-full text-left">
           <thead>
             <tr class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-400">
-              <th class="px-10 py-6">Información del Usuario</th>
-              <th class="px-10 py-6">Identidad</th>
-              <th class="px-10 py-6 text-center">Estado de Acceso</th>
+              <th class="px-10 py-6">Usuario / Contacto</th>
+              <th class="px-10 py-6">Identidad / Rol</th>
+              <th class="px-10 py-6 text-center">Estado</th>
               <th class="px-10 py-6 text-right">Acciones</th>
             </tr>
           </thead>
@@ -480,31 +467,30 @@ onMounted(cargarUsuarios)
               <td class="px-10 py-8">
                 <div>
                   <p class="font-black text-slate-800 text-base leading-tight">{{ u.Nombres }} {{ u.Apellidos }}</p>
-                  <p class="text-slate-400 font-medium text-xs mt-0.5">{{ u.Email }}</p>
+                  <p class="text-slate-400 font-bold text-[10px] uppercase mt-1 tracking-widest">{{ u.Email }}</p>
                 </div>
               </td>
               <td class="px-10 py-8">
-                <p class="font-bold text-slate-600 text-sm tracking-tighter">{{ u.Cedula }}</p>
-                <span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border inline-block mt-2" :class="rolColor(u.Rol)">
+                <p class="font-mono font-black text-blue-600 text-sm tracking-widest">{{ u.Cedula }}</p>
+                <span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border inline-block mt-2 shadow-sm" :class="rolColor(u.Rol)">
                   {{ String(u.Rol || '').trim() === 'Cliente' ? 'Usuario Final' : u.Rol }}
                 </span>
               </td>
               <td class="px-10 py-8 text-center">
-                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border shadow-sm"
+                <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border shadow-sm"
                   :class="u.Activo ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-rose-50 border-rose-100 text-rose-600'">
                   <div class="h-1.5 w-1.5 rounded-full" :class="u.Activo ? 'bg-emerald-500' : 'bg-rose-500'"></div>
-                  <span class="text-[9px] font-black uppercase tracking-widest">{{ u.Activo ? 'Activo' : 'Inactivo' }}</span>
+                  <span class="text-[9px] font-black uppercase tracking-widest">{{ u.Activo ? 'Activo' : 'Bloqueado' }}</span>
                 </div>
               </td>
               <td class="px-10 py-8 text-right">
                 <div class="flex justify-end gap-2">
-                  <button @click="abrirVer(u)"
-                    title="Vista previa"
-                    class="h-10 w-10 flex items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-400 transition-all hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 active:scale-90">
-                    <span class="text-lg">👁</span>
+                  <button @click="abrirVer(u)" title="Vista previa"
+                    class="h-10 w-10 flex items-center justify-center rounded-xl bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all active:scale-90 shadow-sm">
+                    👁
                   </button>
                   <button @click="abrirEditar(u)"
-                    class="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-[10px] font-black text-slate-600 transition-all hover:bg-slate-900 hover:text-white hover:border-slate-900 active:scale-95 shadow-sm">
+                    class="px-5 py-2.5 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95 shadow-lg">
                     GESTIONAR
                   </button>
                 </div>
@@ -514,45 +500,26 @@ onMounted(cargarUsuarios)
         </table>
         <div v-else class="p-24 text-center opacity-40">
           <p class="text-5xl mb-4">🔍</p>
-          <p class="font-black text-slate-400 uppercase tracking-widest text-xs">Sin registros históricos</p>
+          <p class="font-black text-slate-400 uppercase tracking-widest text-xs">Sin registros que coincidan</p>
         </div>
       </div>
 
-      <!-- Paginación Elegante -->
-      <div v-if="usuariosFiltrados.length > 0" class="bg-slate-50/50 border-t border-slate-100 p-6 flex flex-wrap items-center justify-between gap-6">
-        <div class="flex items-center gap-4">
-          <label class="text-[10px] font-black uppercase tracking-widest text-slate-400">Mostrar</label>
-          <select v-model="registrosPorPagina" 
-            class="rounded-xl border border-slate-200 bg-white px-3 py-1.5 font-bold text-slate-700 outline-none focus:border-blue-500">
-            <option :value="5">5 registros</option>
-            <option :value="10">10 registros</option>
-          </select>
-          <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">
-            Total: {{ usuariosFiltrados.length }} registros
-          </p>
+      <!-- Paginación Premium -->
+      <div class="p-8 bg-slate-50/30 border-t border-slate-50">
+        <div class="flex items-center gap-6 mb-6">
+           <PremiumSelect
+             v-model="registrosPorPagina"
+             :options="opcionesFilas"
+             label="Ver"
+             container-class="w-32"
+           />
         </div>
-
-        <div class="flex items-center gap-2">
-          <button @click="paginaActual--" :disabled="paginaActual === 1"
-            class="h-10 w-10 flex items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-400 transition-all hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-white">
-            <span class="text-lg">←</span>
-          </button>
-          
-          <div class="flex items-center gap-1">
-            <span class="px-4 py-2 rounded-xl bg-blue-600 font-black text-white text-xs shadow-lg shadow-blue-500/20">
-              {{ paginaActual }}
-            </span>
-            <span class="px-2 text-slate-300 font-black">/</span>
-            <span class="px-4 py-2 rounded-xl bg-white border border-slate-200 font-black text-slate-600 text-xs">
-              {{ totalPaginas || 1 }}
-            </span>
-          </div>
-
-          <button @click="paginaActual++" :disabled="paginaActual >= totalPaginas"
-            class="h-10 w-10 flex items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-400 transition-all hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-white">
-            <span class="text-lg">→</span>
-          </button>
-        </div>
+        <PaginationControls
+          v-if="usuariosFiltrados.length > 0"
+          :current-page="paginaActual" :total-pages="totalPaginas" :total-items="usuariosFiltrados.length" :items-per-page="registrosPorPagina"
+          :has-prev-page="paginaActual > 1" :has-next-page="paginaActual < totalPaginas"
+          @prev="handlePrevPage" @next="handleNextPage" @set-page="handleSetPage"
+        />
       </div>
     </section>
   </div>
@@ -566,9 +533,6 @@ onMounted(cargarUsuarios)
 .modal-enter-active, .modal-leave-active { transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
 .modal-enter-from { opacity: 0; filter: blur(4px); transform: scale(0.95); }
 .modal-leave-to { opacity: 0; transform: scale(1.02); }
-
-.overflow-x-auto::-webkit-scrollbar { height: 4px; }
-.overflow-x-auto::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
 
 .custom-scroll::-webkit-scrollbar { width: 6px; }
 .custom-scroll::-webkit-scrollbar-track { background: transparent; }

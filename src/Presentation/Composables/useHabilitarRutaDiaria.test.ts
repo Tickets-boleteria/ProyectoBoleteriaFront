@@ -12,7 +12,7 @@ import { DomainException } from '../../Domain/Exceptions/DomainException';
  * Mock de los repositorios
  */
 vi.mock('../../Infrastructure/Repositories/SupabaseRutaRepository');
-vi.mock('../../Infrastructure/SupabaseBusRepository');
+vi.mock('../../Infrastructure/Repositories/SupabaseBusRepository');
 vi.mock('../../Infrastructure/Repositories/SupabaseFrecuenciaRepository');
 
 describe('useHabilitarRutaDiaria', () => {

@@ -49,8 +49,8 @@ function guardarCambios() {
       <form @submit.prevent="guardarCambios" class="space-y-4">
         <!-- Modificar Estado (Reactivación) -->
         <div>
-          <label class="text-xs font-bold text-slate-700">Estado de Operación</label>
-          <select v-model="estado" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 font-bold">
+          <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Estado de Operación</label>
+          <select v-model="estado" class="select-premium mt-1">
             <option value="Activo">🟢 Activo (Disponible)</option>
             <option value="EnMantenimiento">🟠 En Mantenimiento</option>
             <option value="Inactivo">🔴 Inactivo</option>
@@ -59,16 +59,16 @@ function guardarCambios() {
 
         <!-- Campo solicitado: Estructura del Bus -->
         <div>
-          <label class="text-xs font-bold text-slate-700">Estructura del Vehículo</label>
-          <select v-model="estructura" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100">
+          <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Estructura del Vehículo</label>
+          <select v-model="estructura" class="select-premium mt-1">
             <option value="UnPiso">🚌 Autobús de Un Piso (Estándar)</option>
             <option value="DosPisos">🚍 Autobús de Dos Pisos (Double Decker)</option>
           </select>
         </div>
 
         <div>
-          <label class="text-xs font-bold text-slate-700">Nº de Asientos</label>
-          <input type="number" v-model.number="totalAsientos" required class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 mt-1 outline-none focus:border-blue-500" />
+          <label class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nº de Asientos</label>
+          <input type="number" v-model.number="totalAsientos" required class="input-premium mt-1" />
         </div>
 
         <div class="flex space-x-3 pt-2">
