@@ -161,7 +161,6 @@ Esto garantiza la integridad del itinerario.
 
 Para cumplir con los procesos de auditoría, el sistema registra todos los cambios operativos en la tabla `Cambios`.
 
-Además, existe sincronización con el flujo de trabajo basado en **GitHub Issues**.
 
 ## Tipos de Cambios
 
@@ -223,7 +222,7 @@ También permite:
 ## 1️⃣ Clonar el Repositorio
 
 ```bash
-git clone https://github.com/tu-usuario/IHC-Grupo2.git
+git clone https://github.com/Tickets-boleteria/ProyectoBoleteriaFront.git
 
 cd ProyectoBoleteriaFront
 ```
@@ -233,7 +232,7 @@ cd ProyectoBoleteriaFront
 Crear un archivo `.env`:
 
 ```env
-VITE_SUPABASE_URL=https://ymnvvrzqhejqrpszigbw.supabase.co
+VITE_SUPABASE_URL=api_supabase
 
 VITE_SUPABASE_ANON_KEY=tu_clave_anonima_publica
 
